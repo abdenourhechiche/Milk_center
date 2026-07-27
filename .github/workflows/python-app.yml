@@ -15,7 +15,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Python 3.8 32-bit
         uses: actions/setup-python@v5
         with:
