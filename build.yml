@@ -33,7 +33,7 @@ jobs:
           python -m pip install pyinstaller==5.13.2
 
       - name: Build EXE
-        run: python -m PyInstaller --noconfirm milk_lite.spec
+        run: python -m PyInstaller 
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
