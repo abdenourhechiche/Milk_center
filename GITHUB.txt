@@ -1,0 +1,90 @@
+COMPILATION AUTOMATIQUE AVEC GITHUB
+====================================
+
+RESULTAT : un dossier CentreCollecteLait avec un .exe
+compatible Windows 7 (32/64 bits), 8, 10 et 11.
+Aucune installation Python sur le PC final.
+
+
+ETAPE 1 - Compte GitHub
+-----------------------
+1. Allez sur https://github.com
+2. Creez un compte (gratuit) si besoin
+
+
+ETAPE 2 - Nouveau depot
+-----------------------
+1. Cliquez "New repository"
+2. Nom : CentreCollecteLait (ou autre)
+3. Public ou Private
+4. NE cochez PAS "Add a README"
+5. Create repository
+
+
+ETAPE 3 - Envoyer le projet
+---------------------------
+Methode A - en ligne (simple) :
+  1. Sur la page du depot vide, cliquez "uploading an existing file"
+  2. Glissez TOUT le contenu du dossier milk_lite
+     (main.py, src, milk_lite.spec, .github, etc.)
+  3. Commit changes
+
+Methode B - en ligne de commande :
+  git init
+  git add .
+  git commit -m "Centre Collecte Lait"
+  git branch -M main
+  git remote add origin https://github.com/VOTRE_USER/VOTRE_DEPOT.git
+  git push -u origin main
+
+
+ETAPE 4 - Lancer la compilation
+-------------------------------
+1. Onglet "Actions" du depot
+2. A gauche : "Build Windows EXE"
+3. Bouton "Run workflow" -> Run workflow
+4. Attendre 2 a 5 minutes (point vert = OK)
+
+
+ETAPE 5 - Telecharger l'exe
+---------------------------
+1. Cliquer sur la ligne du workflow termine (vert)
+2. En bas de page : section "Artifacts"
+3. Telecharger "CentreCollecteLait-Win32"
+4. Dezipper le fichier telecharge
+5. Vous obtenez le dossier avec CentreCollecteLait.exe
+
+Copiez TOUT ce dossier sur les PC Windows 7/10/11.
+Double-clic sur CentreCollecteLait.exe
+Compte : admin / admin123
+
+
+DEPANNAGE
+---------
+- Actions non visible :
+  Settings -> Actions -> General -> autoriser les workflows
+
+- Echec du build :
+  Ouvrir le job rouge, lire la derniere erreur
+  Verifier que milk_lite.spec et main.py sont a la racine du depot
+
+- L'exe ne demarre pas sur Windows 7 :
+  Installer sur le PC cible :
+  - vc_redist.x86.exe  (Visual C++ 2015-2019)
+  - KB2999226 (Universal C Runtime)
+
+
+STRUCTURE ATTENDUE DANS LE DEPOT
+--------------------------------
+/
+  main.py
+  milk_lite.spec
+  src/
+    config.py
+    database.py
+    utils.py
+    ui/
+      ...
+  .github/
+    workflows/
+      build.yml

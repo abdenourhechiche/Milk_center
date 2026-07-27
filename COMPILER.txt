@@ -1,0 +1,95 @@
+COMPILER LE LOGICIEL POUR WINDOWS 7 / 8 / 10 / 11
+==================================================
+
+Python n'est PAS necessaire sur le PC cible apres compilation.
+
+
+CHOIX DE L'OUTIL
+----------------
+  A) Nuitka      -> build_nuitka.bat   (recommande)
+  B) PyInstaller -> build.bat
+
+
+==================================================
+A) COMPILATION AVEC NUITKA (recommande)
+==================================================
+
+1. Installer Python 3.6 / 3.7 ou 3.8 en 32 bits (x86)
+   https://www.python.org/downloads/release/python-368/
+   -> "Windows x86 executable installer"
+   Cocher "Add Python to PATH"
+
+2. Installer un compilateur C (OBLIGATOIRE pour Nuitka)
+
+   Option simple - MinGW64 :
+     https://winlibs.com/
+     Dezipper et ajouter le dossier "bin" au PATH Windows
+
+   Option Microsoft :
+     "Build Tools for Visual Studio"
+     https://visualstudio.microsoft.com/visual-cpp-build-tools/
+     Cocher "Developpement Desktop en C++"
+
+3. Ouvrir cmd dans le dossier milk_lite et lancer :
+
+     build_nuitka.bat
+
+4. Attendre 5 a 15 minutes (premiere fois plus long).
+
+5. Resultat :
+     dist_nuitka\main.dist\
+       main.exe  (ou CentreCollecteLait.exe)
+       + DLL
+
+   Copier TOUT le dossier main.dist sur le PC cible.
+
+
+Si erreur "No module named nuitka" :
+  python -m pip install nuitka ordered-set zstandard
+
+Si Python 3.6 et Nuitka recent refuse :
+  python -m pip install "nuitka==0.6.19"
+  puis relancer build_nuitka.bat
+
+Si erreur de compilateur C :
+  Installez MinGW64 ou Visual Studio Build Tools
+
+
+Commande manuelle Nuitka :
+  python -m nuitka --standalone --windows-disable-console --enable-plugin=tk-inter --follow-imports --include-package=src --output-dir=dist_nuitka main.py
+
+
+==================================================
+B) COMPILATION AVEC PYINSTALLER
+==================================================
+
+1. Python 3.6 / 3.7 / 3.8 32 bits + PATH
+2. Dans cmd :
+
+     python -m pip install "pyinstaller>=3.6,<5"
+     python -m PyInstaller --noconfirm milk_lite.spec
+
+   ou : build.bat
+
+3. Resultat : dist\CentreCollecteLait\CentreCollecteLait.exe
+
+
+Si "No module named PyInstaller" :
+  python -m pip install "pyinstaller>=3.6,<5"
+  python -m PyInstaller --noconfirm milk_lite.spec
+
+
+==================================================
+DISTRIBUTION
+==================================================
+- Copier le DOSSIER COMPLET (pas seulement le .exe)
+- PC cible : double-clic sur l'exe
+- Pas besoin de Python sur le PC cible
+- Compte : admin / admin123
+
+
+==================================================
+QUEL PYTHON POUR WINDOWS 7 ?
+==================================================
+  Python 3.6 / 3.7 / 3.8  32 bits  -> Win7 32 et 64 bits
+  Python 3.9+                      -> PAS de support Windows 7

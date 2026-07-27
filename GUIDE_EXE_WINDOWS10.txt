@@ -1,0 +1,77 @@
+OBTENIR UN .EXE POUR WINDOWS 7 / 8 / 10 / 11
+============================================
+
+Methode A - Compiler sur un PC Windows 10 ou 11
+Methode B - Compilation automatique GitHub (sans PC Windows)
+
+
+------------------------------------------------
+METHODE A : PC Windows 10 / 11 (30 minutes)
+------------------------------------------------
+
+1. Installer Python 3.8.10 32 bits (IMPORTANT : x86, pas x64)
+   https://www.python.org/downloads/release/python-3810/
+   -> "Windows x86 executable installer"
+   Cocher "Add Python to PATH"
+
+2. Verifier dans cmd :
+   python --version
+   (doit afficher Python 3.8.x)
+
+3. Copier le dossier milk_lite sur ce PC, ouvrir cmd dedans :
+
+   python -m pip install --upgrade pip
+   python -m pip install "pyinstaller==5.13.2"
+   python -m PyInstaller --noconfirm milk_lite.spec
+
+4. Resultat :
+   dist\CentreCollecteLait\
+     CentreCollecteLait.exe
+     (+ fichiers techniques)
+
+5. Copier TOUT le dossier CentreCollecteLait sur le PC Windows 7.
+   Sur Win7, installer aussi si besoin :
+   - vc_redist.x86.exe  (https://aka.ms/vs/17/release/vc_redist.x86.exe)
+   - KB2999226 (mise a jour Universal CRT)
+
+Compte : admin / admin123
+
+
+------------------------------------------------
+METHODE B : GitHub Actions (sans compiler chez vous)
+------------------------------------------------
+
+1. Creer un compte sur https://github.com (gratuit)
+
+2. Nouveau depot (Repository) -> nom libre, ex. centre-collecte-lait
+
+3. Uploader TOUS les fichiers du dossier milk_lite
+   (main.py, src/, milk_lite.spec, .github/, etc.)
+   Soit via l'interface web "Upload files",
+   soit avec Git.
+
+4. Onglet "Actions"
+   -> selectionner "Build Windows EXE"
+   -> "Run workflow" -> Run
+
+5. Attendre 3 a 8 minutes
+
+6. En bas de la page du run : Artifacts
+   -> telecharger "CentreCollecteLait-windows"
+
+7. Dezipper et copier sur les PC cibles
+
+
+------------------------------------------------
+POURQUOI PYTHON 3.8 32 BITS ?
+------------------------------------------------
+- Un exe 32 bits fonctionne sur Windows 32 ET 64 bits
+- Python 3.9+ ne supporte plus Windows 7
+- Python 3.8 est le dernier bon compromis Win7 + outils modernes
+
+
+------------------------------------------------
+LE PC CIBLE N'A PAS BESOIN DE PYTHON
+------------------------------------------------
+Apres compilation, seul le dossier dist\CentreCollecteLait
+est necessaire. Aucune installation Python sur le PC final.
