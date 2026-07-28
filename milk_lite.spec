@@ -1,72 +1,33 @@
-# -*- mode: python -*-
-# PyInstaller spec - Centre Collecte Lait
-# Compatible Windows 7 32/64 bits (Python 3.8 32 bits)
+name: Build Windows EXE
 
-block_cipher = None
+on:
+  workflow_dispatch:
 
-a = Analysis(
-    ['main.py'],
-    pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[
-        'tkinter',
-        'tkinter.ttk',
-        'tkinter.messagebox',
-        'sqlite3',
-        'hashlib',
-        'csv',
-        'uuid',
-        'src',
-        'src.config',
-        'src.database',
-        'src.utils',
-        'src.ui',
-        'src.ui.login',
-        'src.ui.window',
-        'src.ui.modules_eleveurs',
-        'src.ui.modules_ventes',
-        'src.ui.modules_autres',
-    ],
-    hookspath=[],
-    runtime_hooks=[],
-    excludes=[
-        'matplotlib',
-        'numpy',
-        'PIL',
-        'PyQt5',
-        'PySide2',
-        'django',
-        'flask',
-    ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
-    noarchive=False,
-)
+permissions:
+  contents: read
+  actions: write
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+jobs:
+  build:
+    runs-on: windows-2019
+    steps:
+      - uses: actions/checkout@v4
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name='CentreCollecteLait',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    console=False,
-    icon=None,
-)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+          architecture: x86
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    name='CentreCollecteLait',
-)
+      - name: Install PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller==5.13.2
+
+      - name: Build EXE
+        run: python -m PyInstaller --noconfirm milk_lite.spec
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: CentreCollecteLait-Win32
+          path: dist/CentreCollecteLait/
