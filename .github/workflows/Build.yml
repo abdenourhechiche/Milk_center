@@ -1,3 +1,7 @@
+
+# Centre Collecte Lait - Build EXE compatible Windows 7
+# Python 3.8 32-bit + PyInstaller + sqlite3 + sans multiprocessing
+
 name: Build Windows EXE
 
 on:
@@ -10,13 +14,27 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.8 32-bit
+        uses: actions/setup-python@v5
         with:
           python-version: "3.8"
           architecture: x86
+
+      - name: Show environment
+        shell: bash
+        run: |
+          python --version
+          python -c "import struct; print('Architecture:', struct.calcsize('P')*8, 'bits')"
+          python -c "import sys, os; print('DLLs:', os.path.join(sys.base_prefix, 'DLLs'))"
+          ls -la
+          test -f main.py || (echo "ERREUR: main.py manquant a la racine" && exit 1)
+          test -f milk_lite.spec || (echo "ERREUR: milk_lite.spec manquant a la racine" && exit 1)
+          test -d src || (echo "ERREUR: dossier src manquant" && exit 1)
 
       - name: Install PyInstaller
         run: |
@@ -26,8 +44,18 @@ jobs:
       - name: Build EXE
         run: python -m PyInstaller --noconfirm milk_lite.spec
 
-      - name: Upload
+      - name: Verify output and sqlite DLLs
+        shell: bash
+        run: |
+          echo "=== Contenu dist/CentreCollecteLait ==="
+          ls -la dist/CentreCollecteLait/ | head -50
+          echo "=== Fichiers sqlite ==="
+          find dist/CentreCollecteLait -iname "*sqlite*" || echo "ATTENTION: aucun fichier sqlite trouve"
+          test -f dist/CentreCollecteLait/CentreCollecteLait.exe || (echo "ERREUR: exe manquant" && exit 1)
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: CentreCollecteLait-Win32
           path: dist/CentreCollecteLait/
+          if-no-files-found: error
