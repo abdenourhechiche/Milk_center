@@ -1,7 +1,3 @@
-
-# Centre Collecte Lait - Build EXE compatible Windows 7
-# Python 3.8 32-bit + PyInstaller + sqlite3 + sans multiprocessing
-
 name: Build Windows EXE
 
 on:
@@ -19,39 +15,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.8 32-bit
+      # Python 3.7 32-bit = meilleure compat Windows 7
+      - name: Setup Python 3.7 32-bit
         uses: actions/setup-python@v5
         with:
-          python-version: "3.8"
+          python-version: "3.7"
           architecture: x86
 
       - name: Show environment
         shell: bash
         run: |
           python --version
-          python -c "import struct; print('Architecture:', struct.calcsize('P')*8, 'bits')"
-          python -c "import sys, os; print('DLLs:', os.path.join(sys.base_prefix, 'DLLs'))"
-          ls -la
-          test -f main.py || (echo "ERREUR: main.py manquant a la racine" && exit 1)
-          test -f milk_lite.spec || (echo "ERREUR: milk_lite.spec manquant a la racine" && exit 1)
-          test -d src || (echo "ERREUR: dossier src manquant" && exit 1)
+          python -c "import struct; print('bits:', struct.calcsize('P')*8)"
+          test -f main.py || (echo "main.py manquant" && exit 1)
+          test -f milk_lite.spec || (echo "milk_lite.spec manquant" && exit 1)
+          test -d src || (echo "src manquant" && exit 1)
 
-      - name: Install PyInstaller
+      - name: Install PyInstaller (version ancienne, plus compatible Win7)
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller==5.13.2
+          python -m pip install --upgrade "pip<22"
+          python -m pip install "pyinstaller==4.10"
 
       - name: Build EXE
         run: python -m PyInstaller --noconfirm milk_lite.spec
 
-      - name: Verify output and sqlite DLLs
+      - name: Copy critical DLLs next to exe
         shell: bash
         run: |
-          echo "=== Contenu dist/CentreCollecteLait ==="
-          ls -la dist/CentreCollecteLait/ | head -50
-          echo "=== Fichiers sqlite ==="
-          find dist/CentreCollecteLait -iname "*sqlite*" || echo "ATTENTION: aucun fichier sqlite trouve"
-          test -f dist/CentreCollecteLait/CentreCollecteLait.exe || (echo "ERREUR: exe manquant" && exit 1)
+          OUT="dist/CentreCollecteLait"
+          DLLDIR="$(python -c "import sys,os; print(os.path.join(sys.base_prefix,'DLLs'))")"
+          echo "DLLs source: $DLLDIR"
+          # sqlite
+          cp -f "$DLLDIR/sqlite3.dll" "$OUT/" 2>/dev/null || true
+          cp -f "$DLLDIR/_sqlite3.pyd" "$OUT/" 2>/dev/null || true
+          # autres pyd utiles
+          cp -f "$DLLDIR"/*.dll "$OUT/" 2>/dev/null || true
+          echo "=== sqlite dans le dossier final ==="
+          ls -la "$OUT" | grep -i sqlite || echo "WARNING: pas de sqlite visible"
+          ls -la "$OUT/CentreCollecteLait.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
