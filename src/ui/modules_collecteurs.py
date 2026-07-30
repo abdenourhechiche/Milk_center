@@ -105,7 +105,7 @@ class CollecteursMixin(object):
     def _form_collecteur(self, cid=None):
         win = tk.Toplevel(self)
         win.title("Collecteur")
-        win.geometry("400x380")
+        win.geometry("420x480")
         win.grab_set()
 
         fields = {}
@@ -213,7 +213,10 @@ class CollecteursMixin(object):
             except Exception as ex:
                 messagebox.showerror("Erreur", str(ex))
 
-        ttk.Button(win, text="Enregistrer", command=save).pack(pady=12)
+        bf = ttk.Frame(win)
+        bf.pack(pady=15)
+        ttk.Button(bf, text="Enregistrer", command=save, width=14).pack(side="left", padx=8)
+        ttk.Button(bf, text="Annuler", command=win.destroy, width=14).pack(side="left", padx=8)
 
 
     def fiche_collecteur(self):
