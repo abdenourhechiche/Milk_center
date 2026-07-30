@@ -135,3 +135,124 @@ def generer_facture_a4(
         f.write(ligne("="))
         f.write("\n")
     return path
+
+
+def generer_fiche_eleveur(elev, stats, collectes_rows, avances_rows, collecteur_nom="", laiterie_nom=""):
+    """Genere un fichier texte fiche eleveur pour impression."""
+    os.makedirs(EXPORTS_DIR, exist_ok=True)
+    code = elev["code_unique"] or str(elev["id"])
+    path = os.path.join(EXPORTS_DIR, "fiche_eleveur_%s.txt" % code.replace("/", "-"))
+    nom_centre = get_param("nom_centre", "Centre de Collecte de Lait")
+    W = 72
+
+    def ligne(car="="):
+        return car * W + "\n"
+
+    def centre(txt):
+        return txt.center(W) + "\n"
+
+    def g(label, val, largeur=22):
+        return "  %-*s : %s\n" % (largeur, label, val if val not in (None, "") else "-")
+
+    with open(path, "w") as f:
+        f.write("\n")
+        f.write(ligne("="))
+        f.write(centre(nom_centre))
+        f.write(centre("FICHE ELEVEUR"))
+        f.write(ligne("="))
+        f.write(g("Code", elev["code_unique"]))
+        f.write(g("Nom", "%s %s" % (elev["nom"], elev["prenom"])))
+        f.write(g("Telephone", elev["telephone"]))
+        f.write(g("Adresse", elev["adresse"]))
+        f.write(g("Region", elev["region"]))
+        f.write(g("Statut", elev["statut"]))
+        f.write(g("Collecteur", collecteur_nom))
+        f.write(g("Laiterie", laiterie_nom))
+        f.write(g("Date adhesion", elev["date_adhesion"]))
+        f.write(ligne("-"))
+        f.write(centre("RESUME"))
+        f.write(ligne("-"))
+        f.write(g("Nb collectes", stats.get("nb_col", 0)))
+        f.write(g("Volume total", "%.1f L" % stats.get("total_l", 0)))
+        f.write(g("Achats aliments", "%.0f %s" % (stats.get("total_v", 0), MONNAIE)))
+        f.write(g("Avances non deduites", "%.0f %s" % (stats.get("total_av", 0), MONNAIE)))
+        f.write(ligne("-"))
+        f.write(centre("DERNIERES COLLECTES"))
+        f.write(ligne("-"))
+        f.write("  %-16s %8s %8s %8s %s\n" % ("Date", "Qte", "Acid.", "Dens.", "Agent"))
+        for r in collectes_rows[:15]:
+            f.write("  %-16s %8.1f %8s %8s %s\n" % (
+                (r["date_heure"] or "")[:16],
+                r["quantite"] or 0,
+                r["acidite"] if r["acidite"] is not None else "-",
+                r["densite"] if r["densite"] is not None else "-",
+                r["agent"] or "",
+            ))
+        f.write(ligne("-"))
+        f.write(centre("AVANCES"))
+        f.write(ligne("-"))
+        for r in avances_rows[:10]:
+            f.write("  %s  %10.0f %s  %s  [%s]\n" % (
+                (r["date_avance"] or "")[:10],
+                r["montant"] or 0,
+                MONNAIE,
+                r["motif"] or "",
+                r["statut"] or "",
+            ))
+        f.write(ligne("="))
+        f.write(centre("Imprime le %s" % datetime.now().strftime("%d/%m/%Y %H:%M")))
+        f.write(ligne("="))
+    return path
+
+
+def generer_fiche_collecteur(col, elevs_rows, volume_total=0, nb_collectes=0):
+    """Genere un fichier texte fiche collecteur pour impression."""
+    os.makedirs(EXPORTS_DIR, exist_ok=True)
+    code = col["code"] or str(col["id"])
+    path = os.path.join(EXPORTS_DIR, "fiche_collecteur_%s.txt" % code.replace("/", "-"))
+    nom_centre = get_param("nom_centre", "Centre de Collecte de Lait")
+    W = 72
+
+    def ligne(car="="):
+        return car * W + "\n"
+
+    def centre(txt):
+        return txt.center(W) + "\n"
+
+    def g(label, val, largeur=22):
+        return "  %-*s : %s\n" % (largeur, label, val if val not in (None, "") else "-")
+
+    with open(path, "w") as f:
+        f.write("\n")
+        f.write(ligne("="))
+        f.write(centre(nom_centre))
+        f.write(centre("FICHE COLLECTEUR"))
+        f.write(ligne("="))
+        f.write(g("Code", col["code"]))
+        f.write(g("Nom", "%s %s" % (col["nom"], col["prenom"])))
+        f.write(g("Telephone", col["telephone"]))
+        f.write(g("Region", col["region"]))
+        f.write(g("Vehicule", col["vehicule"]))
+        f.write(g("Statut", col["statut"]))
+        f.write(g("Notes", col["notes"]))
+        f.write(ligne("-"))
+        f.write(centre("RESUME"))
+        f.write(ligne("-"))
+        f.write(g("Nb eleveurs", len(elevs_rows)))
+        f.write(g("Nb collectes", nb_collectes))
+        f.write(g("Volume total", "%.1f L" % volume_total))
+        f.write(ligne("-"))
+        f.write(centre("ELEVEURS RATTACHES"))
+        f.write(ligne("-"))
+        f.write("  %-10s %-20s %-12s %s\n" % ("Code", "Nom", "Tel", "Region"))
+        for e in elevs_rows:
+            f.write("  %-10s %-20s %-12s %s\n" % (
+                e["code_unique"] or "",
+                ("%s %s" % (e["nom"], e["prenom"]))[:20],
+                (e["telephone"] or "")[:12],
+                e["region"] or "",
+            ))
+        f.write(ligne("="))
+        f.write(centre("Imprime le %s" % datetime.now().strftime("%d/%m/%Y %H:%M")))
+        f.write(ligne("="))
+    return path
