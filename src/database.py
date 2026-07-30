@@ -96,6 +96,10 @@ def init_db():
             date_expedition TEXT, destination TEXT, quantite_totale REAL,
             temperature REAL, vehicule TEXT, agent TEXT,
             statut TEXT DEFAULT 'en_transit', observations TEXT)""",
+        """CREATE TABLE IF NOT EXISTS collecteurs (
+            id INTEGER PRIMARY KEY, code TEXT UNIQUE, nom TEXT, prenom TEXT,
+            telephone TEXT, region TEXT, vehicule TEXT, statut TEXT DEFAULT 'actif',
+            notes TEXT)""",
         """CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY, code TEXT UNIQUE, nom TEXT, type_client TEXT,
             telephone TEXT, adresse TEXT, contact TEXT, notes TEXT)""",
@@ -113,6 +117,8 @@ def init_db():
         "ALTER TABLE factures ADD COLUMN periode_fin TEXT",
         "ALTER TABLE factures ADD COLUMN debit_avances REAL",
         "ALTER TABLE eleveurs ADD COLUMN region TEXT",
+        "ALTER TABLE eleveurs ADD COLUMN collecteur_id INTEGER",
+        "ALTER TABLE eleveurs ADD COLUMN laiterie_id INTEGER",
     ]:
         try:
             c.execute(col)
@@ -157,6 +163,18 @@ def init_db():
         c.executemany(
             "INSERT INTO clients (code,nom,type_client,telephone,adresse,contact,notes) VALUES (?,?,?,?,?,?,?)",
             clients,
+        )
+
+
+    if c.execute("SELECT COUNT(*) FROM collecteurs").fetchone()[0] == 0:
+        cols = [
+            ("COL-001", "Bensaid", "Omar", "0550111222", "Blida", "Camion 01", "actif", ""),
+            ("COL-002", "Mansouri", "Ali", "0550333444", "Medea", "Camion 02", "actif", ""),
+            ("COL-003", "Haddad", "Youcef", "0550555666", "Tipaza", "Fourgon 01", "actif", ""),
+        ]
+        c.executemany(
+            "INSERT INTO collecteurs (code,nom,prenom,telephone,region,vehicule,statut,notes) VALUES (?,?,?,?,?,?,?,?)",
+            cols,
         )
 
     defaults = {
