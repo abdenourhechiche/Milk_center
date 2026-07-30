@@ -765,6 +765,7 @@ class DiversMixin(object):
         ttk.Label(self.main, text="Laiteries & Clients", font=("Arial", 15, "bold")).pack(pady=6)
         tb = ttk.Frame(self.main); tb.pack(fill="x")
         ttk.Button(tb, text="Ajouter", command=self.add_client).pack(side="left", padx=3)
+        ttk.Button(tb, text="Modifier", command=self.edit_client).pack(side="left", padx=3)
         ttk.Button(tb, text="Supprimer", command=self.del_client).pack(side="left", padx=3)
         ttk.Button(tb, text="Actualiser", command=self.show_clients).pack(side="left", padx=3)
         cols = ("id", "code", "nom", "type", "tel", "adresse")
@@ -778,23 +779,97 @@ class DiversMixin(object):
         conn.close()
 
     def add_client(self):
-        win = tk.Toplevel(self); win.title("Client"); win.geometry("380x320"); win.grab_set()
+        self._form_client()
+
+    def edit_client(self):
+        sel = self.tree_cli.selection()
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez une laiterie / client")
+            return
+        self._form_client(self.tree_cli.item(sel[0])["values"][0])
+
+    def _form_client(self, cid=None):
+        win = tk.Toplevel(self)
+        win.title("Laiterie / Client")
+        win.geometry("400x400")
+        win.grab_set()
         fields = {}
-        for key, label in [("code", "Code *"), ("nom", "Nom *"), ("tel", "Telephone"), ("adresse", "Adresse"), ("contact", "Contact")]:
-            ttk.Label(win, text=label).pack(pady=(5, 0)); e = ttk.Entry(win, width=38); e.pack(); fields[key] = e
+        for key, label in [
+            ("code", "Code *"),
+            ("nom", "Nom *"),
+            ("tel", "Telephone"),
+            ("adresse", "Adresse"),
+            ("contact", "Contact"),
+            ("notes", "Notes"),
+        ]:
+            ttk.Label(win, text=label).pack(pady=(5, 0))
+            e = ttk.Entry(win, width=40)
+            e.pack()
+            fields[key] = e
         type_var = tk.StringVar(value="laiterie")
         ttk.Label(win, text="Type").pack(pady=(5, 0))
-        ttk.Combobox(win, textvariable=type_var, values=["laiterie", "autre", "grossiste"], state="readonly", width=38).pack()
+        ttk.Combobox(
+            win,
+            textvariable=type_var,
+            values=["laiterie", "autre", "grossiste"],
+            state="readonly",
+            width=38,
+        ).pack()
+        if cid:
+            conn = get_conn()
+            r = conn.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()
+            conn.close()
+            if r:
+                fields["code"].insert(0, r["code"] or "")
+                fields["nom"].insert(0, r["nom"] or "")
+                fields["tel"].insert(0, r["telephone"] or "")
+                fields["adresse"].insert(0, r["adresse"] or "")
+                fields["contact"].insert(0, r["contact"] or "")
+                fields["notes"].insert(0, r["notes"] or "")
+                type_var.set(r["type_client"] or "laiterie")
         def save():
             try:
-                code = fields["code"].get().strip(); nom = fields["nom"].get().strip()
-                if not code or not nom: raise ValueError("Code et nom obligatoires")
+                code = fields["code"].get().strip()
+                nom = fields["nom"].get().strip()
+                if not code or not nom:
+                    raise ValueError("Code et nom obligatoires")
                 conn = get_conn()
-                conn.execute("INSERT INTO clients (code,nom,type_client,telephone,adresse,contact,notes) VALUES (?,?,?,?,?,?,?)",
-                             (code, nom, type_var.get(), fields["tel"].get().strip(), fields["adresse"].get().strip(), fields["contact"].get().strip(), ""))
-                conn.commit(); conn.close(); win.destroy(); self.show_clients()
-            except Exception as ex: messagebox.showerror("Erreur", str(ex))
-        ttk.Button(win, text="Enregistrer", command=save).pack(pady=10)
+                if cid:
+                    conn.execute(
+                        """UPDATE clients SET code=?,nom=?,type_client=?,telephone=?,
+                           adresse=?,contact=?,notes=? WHERE id=?""",
+                        (
+                            code, nom, type_var.get(),
+                            fields["tel"].get().strip(),
+                            fields["adresse"].get().strip(),
+                            fields["contact"].get().strip(),
+                            fields["notes"].get().strip(),
+                            cid,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """INSERT INTO clients
+                           (code,nom,type_client,telephone,adresse,contact,notes)
+                           VALUES (?,?,?,?,?,?,?)""",
+                        (
+                            code, nom, type_var.get(),
+                            fields["tel"].get().strip(),
+                            fields["adresse"].get().strip(),
+                            fields["contact"].get().strip(),
+                            fields["notes"].get().strip(),
+                        ),
+                    )
+                conn.commit()
+                conn.close()
+                win.destroy()
+                self.show_clients()
+            except Exception as ex:
+                messagebox.showerror("Erreur", str(ex))
+        bf = ttk.Frame(win)
+        bf.pack(pady=12)
+        ttk.Button(bf, text="Enregistrer", command=save, width=14).pack(side="left", padx=8)
+        ttk.Button(bf, text="Annuler", command=win.destroy, width=14).pack(side="left", padx=8)
 
     def del_client(self):
         sel = self.tree_cli.selection()
