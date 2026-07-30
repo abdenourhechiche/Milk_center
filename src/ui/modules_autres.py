@@ -15,87 +15,220 @@ class CollectesMixin(object):
     def show_collectes(self):
         self.clear()
         ttk.Label(self.main, text="Gestion des Collectes", font=("Arial", 15, "bold")).pack(pady=6)
-        tb = ttk.Frame(self.main); tb.pack(fill="x")
+
+        # Filtre collecteur
+        filt = ttk.Frame(self.main)
+        filt.pack(fill="x", pady=2)
+        ttk.Label(filt, text="Collecteur :").pack(side="left", padx=3)
+        conn = get_conn()
+        cols_list = conn.execute(
+            "SELECT id, nom, prenom, code FROM collecteurs WHERE statut='actif' ORDER BY nom"
+        ).fetchall()
+        conn.close()
+        self._filtre_col_var = tk.StringVar(value="Tous")
+        opts = ["Tous"] + ["%d - %s %s" % (c["id"], c["nom"], c["prenom"]) for c in cols_list]
+        cb = ttk.Combobox(filt, textvariable=self._filtre_col_var, values=opts, state="readonly", width=35)
+        cb.pack(side="left", padx=3)
+        ttk.Button(filt, text="Filtrer", command=self._refresh_collectes_list).pack(side="left", padx=3)
+
+        tb = ttk.Frame(self.main)
+        tb.pack(fill="x")
         ttk.Button(tb, text="Nouvelle Collecte", command=self.add_collecte).pack(side="left", padx=3)
         ttk.Button(tb, text="Modifier", command=self.edit_collecte).pack(side="left", padx=3)
         ttk.Button(tb, text="Supprimer", command=self.del_collecte).pack(side="left", padx=3)
         ttk.Button(tb, text="Actualiser", command=self.show_collectes).pack(side="left", padx=3)
-        cols = ("id", "bon", "eleveur", "date", "qte", "acidite", "densite", "agent")
-        self.tree_col = ttk.Treeview(self.main, columns=cols, show="headings", height=17)
-        for c, t in zip(cols, ["ID", "N Bon", "Eleveur", "Date", "Qte", "Acidite", "Densite", "Agent"]):
-            self.tree_col.heading(c, text=t); self.tree_col.column(c, width=90)
+
+        cols = ("id", "bon", "eleveur", "collecteur", "date", "qte", "acidite", "densite", "agent")
+        self.tree_col = ttk.Treeview(self.main, columns=cols, show="headings", height=16)
+        for c, t in zip(cols, ["ID", "N Bon", "Eleveur", "Collecteur", "Date", "Qte", "Acidite", "Densite", "Agent"]):
+            self.tree_col.heading(c, text=t)
+            self.tree_col.column(c, width=85)
         self.tree_col.pack(fill="both", expand=True, pady=4)
+        self._refresh_collectes_list()
+
+    def _refresh_collectes_list(self):
+        if not hasattr(self, "tree_col"):
+            return
+        for i in self.tree_col.get_children():
+            self.tree_col.delete(i)
+        f = getattr(self, "_filtre_col_var", None)
+        col_filter = None
+        if f and f.get() and f.get() != "Tous":
+            try:
+                col_filter = int(f.get().split(" - ")[0])
+            except Exception:
+                col_filter = None
         conn = get_conn()
-        for r in conn.execute("""SELECT c.*, e.nom||' '||e.prenom as elev_nom FROM collectes c
-            LEFT JOIN eleveurs e ON c.eleveur_id=e.id ORDER BY c.date_heure DESC LIMIT 300"""):
+        sql = """SELECT c.*, e.nom||' '||e.prenom as elev_nom,
+                        COALESCE(col.nom||' '||col.prenom, '-') as collecteur_nom
+                 FROM collectes c
+                 LEFT JOIN eleveurs e ON c.eleveur_id=e.id
+                 LEFT JOIN collecteurs col ON e.collecteur_id=col.id
+                 WHERE 1=1"""
+        params = []
+        if col_filter:
+            sql += " AND e.collecteur_id=?"
+            params.append(col_filter)
+        sql += " ORDER BY c.date_heure DESC LIMIT 300"
+        for r in conn.execute(sql, params):
             self.tree_col.insert("", "end", values=(
                 r["id"], r["numero_bon"], r["elev_nom"] or "?",
+                r["collecteur_nom"] or "-",
                 (r["date_heure"] or "")[:16], "%.1f" % (r["quantite"] or 0),
                 r["acidite"] if r["acidite"] is not None else "-",
-                r["densite"] if r["densite"] is not None else "-", r["agent"] or ""))
+                r["densite"] if r["densite"] is not None else "-",
+                r["agent"] or "",
+            ))
         conn.close()
 
-    def add_collecte(self): self._form_collecte()
+    def add_collecte(self):
+        self._form_collecte()
+
     def edit_collecte(self):
         sel = self.tree_col.selection()
-        if not sel: messagebox.showwarning("Attention", "Selectionnez"); return
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez")
+            return
         self._form_collecte(self.tree_col.item(sel[0])["values"][0])
+
     def del_collecte(self):
         sel = self.tree_col.selection()
-        if not sel: messagebox.showwarning("Attention", "Selectionnez"); return
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez")
+            return
         if messagebox.askyesno("Confirmation", "Supprimer ?"):
             cid = self.tree_col.item(sel[0])["values"][0]
-            conn = get_conn(); conn.execute("DELETE FROM collectes WHERE id=?", (cid,)); conn.commit(); conn.close()
+            conn = get_conn()
+            conn.execute("DELETE FROM collectes WHERE id=?", (cid,))
+            conn.commit()
+            conn.close()
             self.show_collectes()
 
     def _form_collecte(self, cid=None):
         conn = get_conn()
+        collecteurs = conn.execute(
+            "SELECT id, nom, prenom, code FROM collecteurs WHERE statut='actif' ORDER BY nom"
+        ).fetchall()
         regions = [r[0] for r in conn.execute(
-            "SELECT DISTINCT region FROM eleveurs WHERE statut='actif' AND region IS NOT NULL AND region!='' ORDER BY region").fetchall()]
-        all_elevs = conn.execute("SELECT id,code_unique,nom,prenom,region FROM eleveurs WHERE statut='actif' ORDER BY nom").fetchall()
+            "SELECT DISTINCT region FROM eleveurs WHERE statut='actif' AND region IS NOT NULL AND region!='' ORDER BY region"
+        ).fetchall()]
+        all_elevs = conn.execute(
+            "SELECT id, code_unique, nom, prenom, region, collecteur_id FROM eleveurs WHERE statut='actif' ORDER BY nom"
+        ).fetchall()
         existing = conn.execute("SELECT * FROM collectes WHERE id=?", (cid,)).fetchone() if cid else None
         conn.close()
         if not all_elevs:
-            messagebox.showwarning("Attention", "Aucun eleveur actif"); return
-        win = tk.Toplevel(self); win.title("Collecte"); win.geometry("420x480"); win.grab_set()
-        ttk.Label(win, text="Region (filtre)").pack(pady=(8, 0))
+            messagebox.showwarning("Attention", "Aucun eleveur actif")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Collecte")
+        win.geometry("440x520")
+        win.grab_set()
+
+        # Filtre Collecteur
+        ttk.Label(win, text="Collecteur (filtre)").pack(pady=(8, 0))
+        col_var = tk.StringVar(value="Tous")
+        col_opts = ["Tous"] + ["%d - %s %s" % (c["id"], c["nom"], c["prenom"]) for c in collecteurs]
+        col_cb = ttk.Combobox(win, textvariable=col_var, values=col_opts, state="readonly", width=42)
+        col_cb.pack()
+
+        ttk.Label(win, text="Region (filtre)").pack(pady=(6, 0))
         region_var = tk.StringVar(value="Toutes")
-        region_cb = ttk.Combobox(win, textvariable=region_var, values=["Toutes"] + regions, state="readonly", width=40)
+        region_cb = ttk.Combobox(
+            win, textvariable=region_var, values=["Toutes"] + regions, state="readonly", width=42
+        )
         region_cb.pack()
+
         ttk.Label(win, text="Eleveur *").pack(pady=(6, 0))
         elev_var = tk.StringVar()
-        elev_cb = ttk.Combobox(win, textvariable=elev_var, state="readonly", width=40)
+        elev_cb = ttk.Combobox(win, textvariable=elev_var, state="readonly", width=42)
         elev_cb.pack()
+
         def refresh_elevs(*a):
             reg = region_var.get()
-            filtered = all_elevs if reg == "Toutes" else [e for e in all_elevs if (e["region"] or "") == reg]
-            opts = ["%d - %s %s (%s) [%s]" % (e["id"], e["nom"], e["prenom"], e["code_unique"], e["region"] or "-") for e in filtered]
-            elev_cb["values"] = opts
-            elev_var.set(opts[0] if opts and elev_var.get() not in opts else (elev_var.get() if opts else ""))
-            if opts and not elev_var.get(): elev_var.set(opts[0])
-        region_cb.bind("<<ComboboxSelected>>", refresh_elevs); refresh_elevs()
-        if existing:
+            colf = col_var.get()
+            col_id = None
+            if colf and colf != "Tous":
+                try:
+                    col_id = int(colf.split(" - ")[0])
+                except Exception:
+                    col_id = None
+            filtered = []
             for e in all_elevs:
-                if e["id"] == existing["eleveur_id"]:
-                    if e["region"]: region_var.set(e["region"]); refresh_elevs()
-                    for o in elev_cb["values"]:
-                        if o.startswith("%d -" % e["id"]): elev_var.set(o); break
-                    break
+                if reg != "Toutes" and (e["region"] or "") != reg:
+                    continue
+                if col_id is not None:
+                    eid_col = e["collecteur_id"] if "collecteur_id" in e.keys() else None
+                    if eid_col != col_id:
+                        continue
+                filtered.append(e)
+            opts = [
+                "%d - %s %s (%s) [%s]"
+                % (e["id"], e["nom"], e["prenom"], e["code_unique"], e["region"] or "-")
+                for e in filtered
+            ]
+            elev_cb["values"] = opts
+            if opts:
+                if elev_var.get() not in opts:
+                    elev_var.set(opts[0])
+            else:
+                elev_var.set("")
+
+        col_cb.bind("<<ComboboxSelected>>", refresh_elevs)
+        region_cb.bind("<<ComboboxSelected>>", refresh_elevs)
+        refresh_elevs()
+
+        if existing:
+            conn = get_conn()
+            elev = conn.execute(
+                "SELECT * FROM eleveurs WHERE id=?", (existing["eleveur_id"],)
+            ).fetchone()
+            conn.close()
+            if elev:
+                try:
+                    cid_e = elev["collecteur_id"]
+                    if cid_e:
+                        for o in col_opts:
+                            if o.startswith("%d -" % cid_e):
+                                col_var.set(o)
+                                break
+                except Exception:
+                    pass
+                if elev["region"]:
+                    region_var.set(elev["region"])
+                refresh_elevs()
+                for o in elev_cb["values"]:
+                    if o.startswith("%d -" % elev["id"]):
+                        elev_var.set(o)
+                        break
+
         fields = {}
-        for key, label in [("qte", "Quantite (litres) *"), ("acidite", "Acidite"), ("densite", "Densite"),
-                           ("agent", "Agent (optionnel)"), ("vehicule", "Vehicule")]:
-            ttk.Label(win, text=label).pack(pady=(5, 0)); e = ttk.Entry(win, width=42); e.pack(); fields[key] = e
+        for key, label in [
+            ("qte", "Quantite (litres) *"),
+            ("acidite", "Acidite"),
+            ("densite", "Densite"),
+            ("agent", "Agent (optionnel)"),
+            ("vehicule", "Vehicule"),
+        ]:
+            ttk.Label(win, text=label).pack(pady=(5, 0))
+            e = ttk.Entry(win, width=44)
+            e.pack()
+            fields[key] = e
         if existing:
             fields["qte"].insert(0, str(existing["quantite"] or ""))
             fields["acidite"].insert(0, str(existing["acidite"] or ""))
             fields["densite"].insert(0, str(existing["densite"] or ""))
             fields["agent"].insert(0, existing["agent"] or "")
             fields["vehicule"].insert(0, existing["vehicule"] or "")
+
         def save():
             try:
-                if not elev_var.get(): raise ValueError("Selectionnez un eleveur")
+                if not elev_var.get():
+                    raise ValueError("Selectionnez un eleveur")
                 qte = float(fields["qte"].get().replace(",", "."))
-                if qte <= 0: raise ValueError("Quantite > 0")
+                if qte <= 0:
+                    raise ValueError("Quantite > 0")
                 elev_id = int(elev_var.get().split(" - ")[0])
                 acidite = float(fields["acidite"].get().replace(",", ".") or 0) or None
                 densite = float(fields["densite"].get().replace(",", ".") or 0) or None
@@ -103,16 +236,36 @@ class CollectesMixin(object):
                 vehicule = fields["vehicule"].get().strip() or None
                 conn = get_conn()
                 if cid:
-                    conn.execute("UPDATE collectes SET eleveur_id=?,quantite=?,acidite=?,densite=?,agent=?,vehicule=? WHERE id=?",
-                                 (elev_id, qte, acidite, densite, agent, vehicule, cid))
+                    conn.execute(
+                        "UPDATE collectes SET eleveur_id=?,quantite=?,acidite=?,densite=?,agent=?,vehicule=? WHERE id=?",
+                        (elev_id, qte, acidite, densite, agent, vehicule, cid),
+                    )
                 else:
-                    numero = "BC-%s-%s" % (datetime.now().strftime("%Y%m%d"), uuid.uuid4().hex[:6].upper())
-                    conn.execute("INSERT INTO collectes (numero_bon,eleveur_id,date_heure,quantite,acidite,densite,agent,vehicule) VALUES (?,?,?,?,?,?,?,?)",
-                                 (numero, elev_id, datetime.now().isoformat(), qte, acidite, densite, agent, vehicule))
-                conn.commit(); conn.close(); win.destroy(); self.show_collectes()
+                    numero = "BC-%s-%s" % (
+                        datetime.now().strftime("%Y%m%d"),
+                        uuid.uuid4().hex[:6].upper(),
+                    )
+                    conn.execute(
+                        "INSERT INTO collectes (numero_bon,eleveur_id,date_heure,quantite,acidite,densite,agent,vehicule) VALUES (?,?,?,?,?,?,?,?)",
+                        (
+                            numero,
+                            elev_id,
+                            datetime.now().isoformat(),
+                            qte,
+                            acidite,
+                            densite,
+                            agent,
+                            vehicule,
+                        ),
+                    )
+                conn.commit()
+                conn.close()
+                win.destroy()
+                self.show_collectes()
                 messagebox.showinfo("Succes", "Collecte enregistree")
             except Exception as ex:
                 messagebox.showerror("Erreur", str(ex))
+
         ttk.Button(win, text="Enregistrer", command=save).pack(pady=10)
 
 
@@ -344,6 +497,33 @@ class DiversMixin(object):
         else:
             tk.Label(self.main, text="Aucune alerte d'agrement", bg="#27ae60", fg="white",
                      font=("Arial", 10, "bold"), pady=4).pack(fill="x", padx=8, pady=10)
+
+        # Volumes par collecteur
+        cf = ttk.LabelFrame(self.main, text="Volumes par collecteur", padding=5)
+        cf.pack(fill="x", padx=8, pady=8)
+        cols_c = ("collecteur", "nb_elev", "nb_col", "litres")
+        tree_c = ttk.Treeview(cf, columns=cols_c, show="headings", height=5)
+        for c, t in zip(cols_c, ["Collecteur", "Eleveurs", "Collectes", "Litres"]):
+            tree_c.heading(c, text=t)
+            tree_c.column(c, width=140)
+        tree_c.pack(fill="x")
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT COALESCE(col.nom||' '||col.prenom, '(Sans collecteur)') as cnom,
+                   COUNT(DISTINCT e.id) as nb_elev,
+                   COUNT(c.id) as nb_col,
+                   COALESCE(SUM(c.quantite), 0) as litres
+            FROM eleveurs e
+            LEFT JOIN collecteurs col ON e.collecteur_id = col.id
+            LEFT JOIN collectes c ON c.eleveur_id = e.id
+            GROUP BY e.collecteur_id
+            ORDER BY litres DESC
+        """).fetchall()
+        conn.close()
+        for r in rows:
+            tree_c.insert("", "end", values=(
+                r["cnom"], r["nb_elev"], r["nb_col"], "%.0f L" % (r["litres"] or 0)
+            ))
 
     def show_agrements(self):
         self.clear()
