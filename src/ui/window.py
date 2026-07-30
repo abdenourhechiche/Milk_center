@@ -52,7 +52,6 @@ class MainWindow(
             ("Tableau de Bord", self.show_dashboard),
             ("Eleveurs", self.show_eleveurs),
             ("Collecteurs", self.show_collecteurs),
-            ("Fiche Eleveur", self.show_fiche_eleveur),
             ("Collectes", self.show_collectes),
             ("Ventes / Stock", self.show_ventes),
             ("Avances", self.show_avances),
