@@ -7,6 +7,7 @@ from datetime import date
 
 from src.database import get_conn, next_eleveur_code
 from src.config import MONNAIE
+from src.utils import imprimer_fichier, generer_fiche_eleveur
 
 
 class EleveursMixin(object):
@@ -27,6 +28,9 @@ class EleveursMixin(object):
             side="left", padx=3
         )
         ttk.Button(tb, text="Fiche", command=self.fiche_from_list).pack(
+            side="left", padx=3
+        )
+        ttk.Button(tb, text="Imprimer fiche", command=self.print_fiche_eleveur).pack(
             side="left", padx=3
         )
         ttk.Button(tb, text="Actualiser", command=self.show_eleveurs).pack(
@@ -101,6 +105,47 @@ class EleveursMixin(object):
             conn.commit()
             conn.close()
             self.show_eleveurs()
+
+
+    def print_fiche_eleveur(self):
+        sel = self.tree_elev.selection()
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez un eleveur")
+            return
+        self._imprimer_fiche_eleveur(self.tree_elev.item(sel[0])["values"][0])
+
+    def _imprimer_fiche_eleveur(self, eid):
+        conn = get_conn()
+        elev = conn.execute("SELECT * FROM eleveurs WHERE id=?", (eid,)).fetchone()
+        if not elev:
+            conn.close()
+            return
+        col_nom = ""
+        lait_nom = ""
+        try:
+            if elev["collecteur_id"]:
+                cr = conn.execute("SELECT nom,prenom FROM collecteurs WHERE id=?", (elev["collecteur_id"],)).fetchone()
+                if cr:
+                    col_nom = "%s %s" % (cr["nom"], cr["prenom"])
+        except Exception:
+            pass
+        try:
+            if elev["laiterie_id"]:
+                lr = conn.execute("SELECT nom FROM clients WHERE id=?", (elev["laiterie_id"],)).fetchone()
+                if lr:
+                    lait_nom = lr["nom"]
+        except Exception:
+            pass
+        total_l = conn.execute("SELECT COALESCE(SUM(quantite),0) FROM collectes WHERE eleveur_id=?", (eid,)).fetchone()[0]
+        nb_col = conn.execute("SELECT COUNT(*) FROM collectes WHERE eleveur_id=?", (eid,)).fetchone()[0]
+        total_v = conn.execute("SELECT COALESCE(SUM(montant),0) FROM ventes WHERE eleveur_id=?", (eid,)).fetchone()[0]
+        total_av = conn.execute("SELECT COALESCE(SUM(montant),0) FROM avances WHERE eleveur_id=? AND statut='non_deduite'", (eid,)).fetchone()[0]
+        collectes_rows = conn.execute("SELECT * FROM collectes WHERE eleveur_id=? ORDER BY date_heure DESC LIMIT 20", (eid,)).fetchall()
+        avances_rows = conn.execute("SELECT * FROM avances WHERE eleveur_id=? ORDER BY date_avance DESC", (eid,)).fetchall()
+        conn.close()
+        stats = {"nb_col": nb_col, "total_l": total_l, "total_v": total_v, "total_av": total_av}
+        path = generer_fiche_eleveur(elev, stats, collectes_rows, avances_rows, col_nom, lait_nom)
+        imprimer_fichier(path)
 
     def _form_eleveur(self, eid=None):
         win = tk.Toplevel(self)
@@ -435,6 +480,7 @@ class EleveursMixin(object):
                 ),
             )
         conn.close()
-        ttk.Button(
-            self.main, text="Retour liste", command=self.show_eleveurs
-        ).pack(pady=8)
+        bf = ttk.Frame(self.main)
+        bf.pack(pady=8)
+        ttk.Button(bf, text="Imprimer la fiche", command=lambda: self._imprimer_fiche_eleveur(eid)).pack(side="left", padx=5)
+        ttk.Button(bf, text="Retour liste", command=self.show_eleveurs).pack(side="left", padx=5)
