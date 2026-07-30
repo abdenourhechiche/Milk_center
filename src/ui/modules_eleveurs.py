@@ -33,19 +33,28 @@ class EleveursMixin(object):
             side="left", padx=3
         )
 
-        cols = ("id", "code", "nom", "prenom", "tel", "region", "statut")
+        cols = ("id", "code", "nom", "prenom", "tel", "region", "collecteur", "laiterie", "statut")
         self.tree_elev = ttk.Treeview(
             self.main, columns=cols, show="headings", height=17
         )
         for c, t in zip(
-            cols, ["ID", "Code", "Nom", "Prenom", "Telephone", "Region", "Statut"]
+            cols,
+            ["ID", "Code", "Nom", "Prenom", "Tel", "Region", "Collecteur", "Laiterie", "Statut"],
         ):
             self.tree_elev.heading(c, text=t)
-            self.tree_elev.column(c, width=95)
+            self.tree_elev.column(c, width=85)
         self.tree_elev.pack(fill="both", expand=True, pady=4)
 
         conn = get_conn()
-        for r in conn.execute("SELECT * FROM eleveurs ORDER BY nom"):
+        for r in conn.execute("""
+            SELECT e.*,
+                   COALESCE(c.nom||' '||c.prenom, '') as collecteur_nom,
+                   COALESCE(l.nom, '') as laiterie_nom
+            FROM eleveurs e
+            LEFT JOIN collecteurs c ON e.collecteur_id = c.id
+            LEFT JOIN clients l ON e.laiterie_id = l.id
+            ORDER BY e.nom
+        """):
             self.tree_elev.insert(
                 "",
                 "end",
@@ -56,6 +65,8 @@ class EleveursMixin(object):
                     r["prenom"],
                     r["telephone"],
                     r["region"] or "",
+                    r["collecteur_nom"] or "",
+                    r["laiterie_nom"] or "",
                     r["statut"],
                 ),
             )
@@ -94,13 +105,31 @@ class EleveursMixin(object):
     def _form_eleveur(self, eid=None):
         win = tk.Toplevel(self)
         win.title("Eleveur")
-        win.geometry("380x360")
+        win.geometry("420x520")
         win.grab_set()
+
+        conn = get_conn()
+        collecteurs = conn.execute(
+            "SELECT id, code, nom, prenom FROM collecteurs WHERE statut='actif' ORDER BY nom"
+        ).fetchall()
+        laiteries = conn.execute(
+            "SELECT id, code, nom FROM clients WHERE type_client='laiterie' OR type_client LIKE '%lait%' ORDER BY nom"
+        ).fetchall()
+        if not laiteries:
+            laiteries = conn.execute(
+                "SELECT id, code, nom FROM clients ORDER BY nom"
+            ).fetchall()
+        existing = None
+        if eid:
+            existing = conn.execute(
+                "SELECT * FROM eleveurs WHERE id=?", (eid,)
+            ).fetchone()
+        conn.close()
 
         ttk.Label(win, text="Code unique").grid(
             row=0, column=0, sticky="e", padx=5, pady=5
         )
-        code_e = ttk.Entry(win, width=28)
+        code_e = ttk.Entry(win, width=30)
         code_e.grid(row=0, column=1, padx=5, pady=5)
 
         fields = {}
@@ -117,38 +146,79 @@ class EleveursMixin(object):
             ttk.Label(win, text=label).grid(
                 row=i, column=0, sticky="e", padx=5, pady=5
             )
-            e = ttk.Entry(win, width=28)
+            e = ttk.Entry(win, width=30)
             e.grid(row=i, column=1, padx=5, pady=5)
             fields[key] = e
 
+        # Collecteur
+        ttk.Label(win, text="Collecteur").grid(
+            row=6, column=0, sticky="e", padx=5, pady=5
+        )
+        col_var = tk.StringVar(value="")
+        col_opts = ["(Aucun)"]
+        col_map = {"": None}
+        for c in collecteurs:
+            label = "%d - %s %s (%s)" % (c["id"], c["nom"], c["prenom"], c["code"])
+            col_opts.append(label)
+            col_map[label] = c["id"]
+        col_cb = ttk.Combobox(
+            win, textvariable=col_var, values=col_opts, state="readonly", width=28
+        )
+        col_cb.grid(row=6, column=1, padx=5, pady=5)
+        col_var.set(col_opts[0])
+
+        # Laiterie
+        ttk.Label(win, text="Laiterie").grid(
+            row=7, column=0, sticky="e", padx=5, pady=5
+        )
+        lait_var = tk.StringVar(value="")
+        lait_opts = ["(Aucune)"]
+        lait_map = {"": None}
+        for l in laiteries:
+            label = "%d - %s (%s)" % (l["id"], l["nom"], l["code"])
+            lait_opts.append(label)
+            lait_map[label] = l["id"]
+        lait_cb = ttk.Combobox(
+            win, textvariable=lait_var, values=lait_opts, state="readonly", width=28
+        )
+        lait_cb.grid(row=7, column=1, padx=5, pady=5)
+        lait_var.set(lait_opts[0])
+
         statut_var = tk.StringVar(value="actif")
         ttk.Label(win, text="Statut").grid(
-            row=6, column=0, sticky="e", padx=5, pady=5
+            row=8, column=0, sticky="e", padx=5, pady=5
         )
         ttk.Combobox(
             win,
             textvariable=statut_var,
             values=["actif", "inactif", "bloque"],
             state="readonly",
-            width=26,
-        ).grid(row=6, column=1, padx=5, pady=5)
+            width=28,
+        ).grid(row=8, column=1, padx=5, pady=5)
 
-        if eid:
-            conn = get_conn()
-            r = conn.execute(
-                "SELECT * FROM eleveurs WHERE id=?", (eid,)
-            ).fetchone()
-            conn.close()
-            if r:
-                code_e.insert(0, r["code_unique"] or "")
-                code_e.config(state="readonly")
-                fields["nom"].insert(0, r["nom"] or "")
-                fields["prenom"].insert(0, r["prenom"] or "")
-                fields["tel"].insert(0, r["telephone"] or "")
-                fields["adresse"].insert(0, r["adresse"] or "")
-                fields["region"].insert(0, r["region"] or "")
-                statut_var.set(r["statut"])
+        if existing:
+            code_e.insert(0, existing["code_unique"] or "")
+            code_e.config(state="readonly")
+            fields["nom"].insert(0, existing["nom"] or "")
+            fields["prenom"].insert(0, existing["prenom"] or "")
+            fields["tel"].insert(0, existing["telephone"] or "")
+            fields["adresse"].insert(0, existing["adresse"] or "")
+            fields["region"].insert(0, existing["region"] or "")
+            statut_var.set(existing["statut"] or "actif")
+            cid = existing["collecteur_id"] if "collecteur_id" in existing.keys() else None
+            lid = existing["laiterie_id"] if "laiterie_id" in existing.keys() else None
+            if cid:
+                for o in col_opts:
+                    if o.startswith("%d -" % cid):
+                        col_var.set(o)
+                        break
+            if lid:
+                for o in lait_opts:
+                    if o.startswith("%d -" % lid):
+                        lait_var.set(o)
+                        break
         else:
+            from src.database import next_eleveur_code
             code_e.insert(0, next_eleveur_code())
             code_e.config(state="readonly")
 
@@ -159,10 +229,13 @@ class EleveursMixin(object):
                 messagebox.showerror("Erreur", "Nom et prenom obligatoires")
                 return
             code = code_e.get().strip()
+            col_id = col_map.get(col_var.get())
+            lait_id = lait_map.get(lait_var.get())
             conn = get_conn()
             if eid:
                 conn.execute(
-                    "UPDATE eleveurs SET nom=?,prenom=?,telephone=?,adresse=?,region=?,statut=? WHERE id=?",
+                    """UPDATE eleveurs SET nom=?,prenom=?,telephone=?,adresse=?,
+                       region=?,statut=?,collecteur_id=?,laiterie_id=? WHERE id=?""",
                     (
                         nom,
                         prenom,
@@ -170,12 +243,18 @@ class EleveursMixin(object):
                         fields["adresse"].get().strip(),
                         fields["region"].get().strip(),
                         statut_var.get(),
+                        col_id,
+                        lait_id,
                         eid,
                     ),
                 )
             else:
+                from datetime import date
                 conn.execute(
-                    "INSERT INTO eleveurs (code_unique,nom,prenom,telephone,adresse,region,date_adhesion,statut) VALUES (?,?,?,?,?,?,?,?)",
+                    """INSERT INTO eleveurs
+                       (code_unique,nom,prenom,telephone,adresse,region,date_adhesion,
+                        statut,collecteur_id,laiterie_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
                     (
                         code,
                         nom,
@@ -185,6 +264,8 @@ class EleveursMixin(object):
                         fields["region"].get().strip(),
                         date.today().isoformat(),
                         statut_var.get(),
+                        col_id,
+                        lait_id,
                     ),
                 )
             conn.commit()
@@ -193,7 +274,7 @@ class EleveursMixin(object):
             self.show_eleveurs()
 
         ttk.Button(win, text="Enregistrer", command=save).grid(
-            row=7, column=0, columnspan=2, pady=12
+            row=9, column=0, columnspan=2, pady=12
         )
 
     def show_fiche_eleveur(self):
@@ -248,6 +329,24 @@ class EleveursMixin(object):
 
         info = ttk.LabelFrame(self.main, text="Informations", padding=8)
         info.pack(fill="x", padx=10, pady=5)
+        col_nom = "-"
+        lait_nom = "-"
+        try:
+            cid = elev["collecteur_id"]
+            if cid:
+                cr = conn.execute("SELECT nom,prenom FROM collecteurs WHERE id=?", (cid,)).fetchone()
+                if cr:
+                    col_nom = "%s %s" % (cr["nom"], cr["prenom"])
+        except Exception:
+            pass
+        try:
+            lid = elev["laiterie_id"]
+            if lid:
+                lr = conn.execute("SELECT nom FROM clients WHERE id=?", (lid,)).fetchone()
+                if lr:
+                    lait_nom = lr["nom"]
+        except Exception:
+            pass
         ttk.Label(
             info,
             text="Tel: %s | Region: %s | Adresse: %s | Statut: %s"
@@ -257,6 +356,11 @@ class EleveursMixin(object):
                 elev["adresse"] or "-",
                 elev["statut"],
             ),
+        ).pack(anchor="w")
+        ttk.Label(
+            info,
+            text="Collecteur: %s | Laiterie: %s" % (col_nom, lait_nom),
+            font=("Arial", 10, "bold"),
         ).pack(anchor="w")
 
         total_l = conn.execute(
