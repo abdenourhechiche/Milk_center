@@ -27,6 +27,9 @@ class VentesMixin(object):
         ttk.Button(tb, text="Nouvelle Vente", command=self.add_vente).pack(
             side="left", padx=3
         )
+        ttk.Button(tb, text="Modifier", command=self.edit_vente).pack(
+            side="left", padx=3
+        )
         ttk.Button(tb, text="Supprimer", command=self.del_vente).pack(
             side="left", padx=3
         )
@@ -242,6 +245,16 @@ class VentesMixin(object):
         self.show_ventes()
 
     def add_vente(self):
+        self._form_vente()
+
+    def edit_vente(self):
+        sel = self.tree_v.selection()
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez une vente")
+            return
+        self._form_vente(self.tree_v.item(sel[0])["values"][0])
+
+    def _form_vente(self, vid=None):
         conn = get_conn()
         regions = [
             r[0]
@@ -255,6 +268,11 @@ class VentesMixin(object):
         prods = conn.execute(
             "SELECT id, nom, prix, stock FROM produits"
         ).fetchall()
+        existing = None
+        if vid:
+            existing = conn.execute(
+                "SELECT * FROM ventes WHERE id=?", (vid,)
+            ).fetchone()
         conn.close()
 
         if not all_elevs:
@@ -269,7 +287,7 @@ class VentesMixin(object):
 
         win = tk.Toplevel(self)
         win.title("Vente")
-        win.geometry("420x400")
+        win.geometry("420x420")
         win.grab_set()
 
         ttk.Label(win, text="Region (filtre)").pack(pady=(8, 0))
@@ -321,13 +339,14 @@ class VentesMixin(object):
             "%d - %s (stock: %.0f)" % (p["id"], p["nom"], p["stock"] or 0)
             for p in prods
         ]
-        ttk.Combobox(
+        prod_cb = ttk.Combobox(
             win,
             textvariable=prod_var,
             values=prod_opts,
             state="readonly",
             width=40,
-        ).pack()
+        )
+        prod_cb.pack()
         prod_var.set(prod_opts[0])
 
         ttk.Label(win, text="Quantite").pack(pady=(6, 0))
@@ -343,6 +362,24 @@ class VentesMixin(object):
             state="readonly",
             width=40,
         ).pack()
+
+        if existing:
+            for e in all_elevs:
+                if e["id"] == existing["eleveur_id"]:
+                    if e["region"]:
+                        region_var.set(e["region"])
+                        refresh_elevs()
+                    for o in elev_cb["values"]:
+                        if o.startswith("%d -" % e["id"]):
+                            elev_var.set(o)
+                            break
+                    break
+            for o in prod_opts:
+                if o.startswith("%d -" % existing["produit_id"]):
+                    prod_var.set(o)
+                    break
+            qte_e.insert(0, str(existing["quantite"] or ""))
+            mode_var.set(existing["mode"] or "credit")
 
         def save():
             try:
@@ -378,36 +415,73 @@ class VentesMixin(object):
                     conn.close()
                     messagebox.showerror("Erreur", "Produit introuvable")
                     return
-                if (prod["stock"] or 0) < qte:
-                    messagebox.showerror(
-                        "Erreur",
-                        "Stock insuffisant (disponible: %.1f)"
-                        % (prod["stock"] or 0),
-                    )
-                    conn.close()
-                    return
 
-                montant = qte * prod["prix"]
-                numero = "VT-%s-%s" % (
-                    datetime.now().strftime("%Y%m%d"),
-                    uuid.uuid4().hex[:5].upper(),
-                )
-                conn.execute(
-                    "INSERT INTO ventes (numero,eleveur_id,produit_id,quantite,montant,mode,date_vente) VALUES (?,?,?,?,?,?,?)",
-                    (
-                        numero,
-                        elev_id,
-                        prod_id,
-                        qte,
-                        montant,
-                        mode_var.get(),
-                        datetime.now().isoformat(),
-                    ),
-                )
-                conn.execute(
-                    "UPDATE produits SET stock=stock-? WHERE id=?",
-                    (qte, prod_id),
-                )
+                if vid and existing:
+                    # restaurer ancien stock puis appliquer nouveau
+                    old_pid = existing["produit_id"]
+                    old_qte = existing["quantite"] or 0
+                    conn.execute(
+                        "UPDATE produits SET stock=stock+? WHERE id=?",
+                        (old_qte, old_pid),
+                    )
+                    prod = conn.execute(
+                        "SELECT * FROM produits WHERE id=?", (prod_id,)
+                    ).fetchone()
+                    if (prod["stock"] or 0) < qte:
+                        # rollback partial - subtract back? better re-read
+                        conn.execute(
+                            "UPDATE produits SET stock=stock-? WHERE id=?",
+                            (old_qte, old_pid),
+                        )
+                        conn.close()
+                        messagebox.showerror(
+                            "Erreur",
+                            "Stock insuffisant (disponible: %.1f)"
+                            % (prod["stock"] or 0),
+                        )
+                        return
+                    montant = qte * prod["prix"]
+                    conn.execute(
+                        "UPDATE produits SET stock=stock-? WHERE id=?",
+                        (qte, prod_id),
+                    )
+                    conn.execute(
+                        """UPDATE ventes SET eleveur_id=?,produit_id=?,quantite=?,
+                           montant=?,mode=? WHERE id=?""",
+                        (elev_id, prod_id, qte, montant, mode_var.get(), vid),
+                    )
+                else:
+                    if (prod["stock"] or 0) < qte:
+                        messagebox.showerror(
+                            "Erreur",
+                            "Stock insuffisant (disponible: %.1f)"
+                            % (prod["stock"] or 0),
+                        )
+                        conn.close()
+                        return
+                    montant = qte * prod["prix"]
+                    from datetime import datetime
+                    import uuid
+                    numero = "VT-%s-%s" % (
+                        datetime.now().strftime("%Y%m%d"),
+                        uuid.uuid4().hex[:5].upper(),
+                    )
+                    conn.execute(
+                        "INSERT INTO ventes (numero,eleveur_id,produit_id,quantite,montant,mode,date_vente) VALUES (?,?,?,?,?,?,?)",
+                        (
+                            numero,
+                            elev_id,
+                            prod_id,
+                            qte,
+                            montant,
+                            mode_var.get(),
+                            datetime.now().isoformat(),
+                        ),
+                    )
+                    conn.execute(
+                        "UPDATE produits SET stock=stock-? WHERE id=?",
+                        (qte, prod_id),
+                    )
                 conn.commit()
                 conn.close()
                 win.destroy()
@@ -419,7 +493,14 @@ class VentesMixin(object):
             except Exception as ex:
                 messagebox.showerror("Erreur", str(ex))
 
-        ttk.Button(win, text="Enregistrer", command=save).pack(pady=10)
+        bf = ttk.Frame(win)
+        bf.pack(pady=12)
+        ttk.Button(bf, text="Enregistrer", command=save, width=14).pack(
+            side="left", padx=8
+        )
+        ttk.Button(bf, text="Annuler", command=win.destroy, width=14).pack(
+            side="left", padx=8
+        )
 
     def del_vente(self):
         sel = self.tree_v.selection()
