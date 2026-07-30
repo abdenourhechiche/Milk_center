@@ -6,6 +6,7 @@ from tkinter import ttk
 
 from src.database import get_param
 from src.ui.modules_eleveurs import EleveursMixin
+from src.ui.modules_collecteurs import CollecteursMixin
 from src.ui.modules_ventes import VentesMixin
 from src.ui.modules_autres import (
     CollectesMixin,
@@ -18,6 +19,7 @@ from src.ui.modules_autres import (
 class MainWindow(
     tk.Tk,
     EleveursMixin,
+    CollecteursMixin,
     VentesMixin,
     CollectesMixin,
     AvancesMixin,
@@ -49,6 +51,7 @@ class MainWindow(
         menus = [
             ("Tableau de Bord", self.show_dashboard),
             ("Eleveurs", self.show_eleveurs),
+            ("Collecteurs", self.show_collecteurs),
             ("Fiche Eleveur", self.show_fiche_eleveur),
             ("Collectes", self.show_collectes),
             ("Ventes / Stock", self.show_ventes),
