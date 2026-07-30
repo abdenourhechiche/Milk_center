@@ -273,14 +273,17 @@ class AvancesMixin(object):
     def show_avances(self):
         self.clear()
         ttk.Label(self.main, text="Avances aux Eleveurs", font=("Arial", 15, "bold")).pack(pady=6)
-        tb = ttk.Frame(self.main); tb.pack(fill="x")
-        ttk.Button(tb, text="Nouvelle Avance", command=self.add_avance).pack(side="left", padx=3)
+        tb = ttk.Frame(self.main)
+        tb.pack(fill="x")
+        ttk.Button(tb, text="Nouvelle Avance", command=lambda: self._form_avance()).pack(side="left", padx=3)
+        ttk.Button(tb, text="Modifier", command=self.edit_avance).pack(side="left", padx=3)
         ttk.Button(tb, text="Supprimer", command=self.del_avance).pack(side="left", padx=3)
         ttk.Button(tb, text="Actualiser", command=self.show_avances).pack(side="left", padx=3)
         cols = ("id", "eleveur", "date", "montant", "motif", "statut")
         self.tree_av = ttk.Treeview(self.main, columns=cols, show="headings", height=16)
         for c, t in zip(cols, ["ID", "Eleveur", "Date", "Montant", "Motif", "Statut"]):
-            self.tree_av.heading(c, text=t); self.tree_av.column(c, width=110)
+            self.tree_av.heading(c, text=t)
+            self.tree_av.column(c, width=110)
         self.tree_av.pack(fill="both", expand=True, pady=4)
         conn = get_conn()
         for r in conn.execute("""SELECT a.*, e.nom||' '||e.prenom as elev FROM avances a
@@ -290,37 +293,101 @@ class AvancesMixin(object):
                 "%.0f" % (r["montant"] or 0), r["motif"] or "", r["statut"]))
         conn.close()
 
-    def add_avance(self):
+    def edit_avance(self):
+        sel = self.tree_av.selection()
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez une avance")
+            return
+        self._form_avance(self.tree_av.item(sel[0])["values"][0])
+
+    def _form_avance(self, aid=None):
         conn = get_conn()
-        elevs = conn.execute("SELECT id,nom,prenom FROM eleveurs WHERE statut='actif' ORDER BY nom").fetchall()
+        elevs = conn.execute(
+            "SELECT id,nom,prenom FROM eleveurs WHERE statut='actif' ORDER BY nom"
+        ).fetchall()
+        existing = conn.execute(
+            "SELECT * FROM avances WHERE id=?", (aid,)
+        ).fetchone() if aid else None
         conn.close()
-        if not elevs: messagebox.showwarning("Attention", "Aucun eleveur"); return
-        win = tk.Toplevel(self); win.title("Avance"); win.geometry("400x300"); win.grab_set()
+        if not elevs:
+            messagebox.showwarning("Attention", "Aucun eleveur")
+            return
+        win = tk.Toplevel(self)
+        win.title("Avance")
+        win.geometry("400x340")
+        win.grab_set()
         ttk.Label(win, text="Eleveur *").pack(pady=(10, 0))
         elev_var = tk.StringVar()
         opts = ["%d - %s %s" % (e["id"], e["nom"], e["prenom"]) for e in elevs]
-        ttk.Combobox(win, textvariable=elev_var, values=opts, state="readonly", width=40).pack(); elev_var.set(opts[0])
-        ttk.Label(win, text="Montant (%s) *" % MONNAIE).pack(pady=(8, 0)); montant_e = ttk.Entry(win, width=40); montant_e.pack()
-        ttk.Label(win, text="Date (AAAA-MM-JJ)").pack(pady=(8, 0)); date_e = ttk.Entry(win, width=40); date_e.insert(0, date.today().isoformat()); date_e.pack()
-        ttk.Label(win, text="Motif").pack(pady=(8, 0)); motif_e = ttk.Entry(win, width=40); motif_e.pack()
+        ttk.Combobox(win, textvariable=elev_var, values=opts, state="readonly", width=40).pack()
+        elev_var.set(opts[0])
+        ttk.Label(win, text="Montant (%s) *" % MONNAIE).pack(pady=(8, 0))
+        montant_e = ttk.Entry(win, width=40)
+        montant_e.pack()
+        ttk.Label(win, text="Date (AAAA-MM-JJ)").pack(pady=(8, 0))
+        date_e = ttk.Entry(win, width=40)
+        date_e.insert(0, date.today().isoformat())
+        date_e.pack()
+        ttk.Label(win, text="Motif").pack(pady=(8, 0))
+        motif_e = ttk.Entry(win, width=40)
+        motif_e.pack()
+        statut_var = tk.StringVar(value="non_deduite")
+        ttk.Label(win, text="Statut").pack(pady=(8, 0))
+        ttk.Combobox(
+            win, textvariable=statut_var,
+            values=["non_deduite", "deduite"], state="readonly", width=40
+        ).pack()
+        if existing:
+            for o in opts:
+                if o.startswith("%d -" % existing["eleveur_id"]):
+                    elev_var.set(o)
+                    break
+            montant_e.insert(0, str(existing["montant"] or ""))
+            date_e.delete(0, "end")
+            date_e.insert(0, (existing["date_avance"] or "")[:10])
+            motif_e.insert(0, existing["motif"] or "")
+            statut_var.set(existing["statut"] or "non_deduite")
+
         def save():
             try:
                 elev_id = int(elev_var.get().split(" - ")[0])
                 montant = float(montant_e.get().replace(",", "."))
-                if montant <= 0: raise ValueError("Montant > 0")
+                if montant <= 0:
+                    raise ValueError("Montant > 0")
                 conn = get_conn()
-                conn.execute("INSERT INTO avances (eleveur_id,date_avance,montant,motif,statut) VALUES (?,?,?,?,?)",
-                             (elev_id, date_e.get().strip(), montant, motif_e.get().strip(), "non_deduite"))
-                conn.commit(); conn.close(); win.destroy(); self.show_avances()
-            except Exception as ex: messagebox.showerror("Erreur", str(ex))
+                if aid:
+                    conn.execute(
+                        """UPDATE avances SET eleveur_id=?,date_avance=?,montant=?,
+                           motif=?,statut=? WHERE id=?""",
+                        (elev_id, date_e.get().strip(), montant,
+                         motif_e.get().strip(), statut_var.get(), aid))
+                else:
+                    conn.execute(
+                        """INSERT INTO avances
+                           (eleveur_id,date_avance,montant,motif,statut)
+                           VALUES (?,?,?,?,?)""",
+                        (elev_id, date_e.get().strip(), montant,
+                         motif_e.get().strip(), statut_var.get()))
+                conn.commit()
+                conn.close()
+                win.destroy()
+                self.show_avances()
+            except Exception as ex:
+                messagebox.showerror("Erreur", str(ex))
+
         ttk.Button(win, text="Enregistrer", command=save).pack(pady=12)
 
     def del_avance(self):
         sel = self.tree_av.selection()
-        if not sel: messagebox.showwarning("Attention", "Selectionnez"); return
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez")
+            return
         if messagebox.askyesno("Confirmation", "Supprimer ?"):
             aid = self.tree_av.item(sel[0])["values"][0]
-            conn = get_conn(); conn.execute("DELETE FROM avances WHERE id=?", (aid,)); conn.commit(); conn.close()
+            conn = get_conn()
+            conn.execute("DELETE FROM avances WHERE id=?", (aid,))
+            conn.commit()
+            conn.close()
             self.show_avances()
 
 
@@ -529,13 +596,14 @@ class DiversMixin(object):
         self.clear()
         ttk.Label(self.main, text="Agrements Sanitaires", font=("Arial", 15, "bold")).pack(pady=6)
         tb = ttk.Frame(self.main); tb.pack(fill="x")
-        ttk.Button(tb, text="Ajouter", command=self.add_agrement).pack(side="left", padx=3)
+        ttk.Button(tb, text="Ajouter", command=lambda: self._form_agrement()).pack(side="left", padx=3)
+        ttk.Button(tb, text="Modifier", command=self.edit_agrement).pack(side="left", padx=3)
         ttk.Button(tb, text="Supprimer", command=self.del_agrement).pack(side="left", padx=3)
         ttk.Button(tb, text="Actualiser", command=self.show_agrements).pack(side="left", padx=3)
-        cols = ("id", "ref", "type", "cible", "exp", "jours", "statut")
+        cols = ("id", "ref", "type", "cible", "deliv", "exp", "jours", "statut")
         self.tree_a = ttk.Treeview(self.main, columns=cols, show="headings", height=15)
-        for c, t in zip(cols, ["ID", "Ref", "Type", "Cible", "Expiration", "Jours", "Statut"]):
-            self.tree_a.heading(c, text=t); self.tree_a.column(c, width=95)
+        for c, t in zip(cols, ["ID", "Ref", "Type", "Cible", "Delivrance", "Expiration", "Jours", "Statut"]):
+            self.tree_a.heading(c, text=t); self.tree_a.column(c, width=90)
         self.tree_a.pack(fill="both", expand=True, pady=4)
         conn = get_conn()
         for r in conn.execute("SELECT * FROM agrements ORDER BY date_expiration"):
@@ -543,34 +611,86 @@ class DiversMixin(object):
                 exp = date(*[int(x) for x in r["date_expiration"].split("-")]); jours = (exp - date.today()).days
             except Exception: jours = "?"
             st = "EXPIRE" if (isinstance(jours, int) and jours < 0) else r["statut"]
-            self.tree_a.insert("", "end", values=(r["id"], r["reference"], r["type_agrement"], r["cible"] or "", r["date_expiration"], jours, st))
+            self.tree_a.insert("", "end", values=(
+                r["id"], r["reference"], r["type_agrement"], r["cible"] or "",
+                r["date_delivrance"] or "", r["date_expiration"], jours, st))
         conn.close()
 
-    def add_agrement(self):
-        win = tk.Toplevel(self); win.title("Agrement"); win.geometry("360x300"); win.grab_set()
-        ttk.Label(win, text="Type").pack(pady=(6, 0)); type_var = tk.StringVar(value="eleveur")
-        ttk.Combobox(win, textvariable=type_var, values=["eleveur", "vehicule", "centre"], state="readonly", width=35).pack()
-        ttk.Label(win, text="Reference *").pack(pady=(5, 0)); ref_e = ttk.Entry(win, width=35); ref_e.pack()
-        ttk.Label(win, text="Cible").pack(pady=(5, 0)); cible_e = ttk.Entry(win, width=35); cible_e.pack()
-        ttk.Label(win, text="Date delivrance").pack(pady=(5, 0)); deliv_e = ttk.Entry(win, width=35); deliv_e.insert(0, date.today().isoformat()); deliv_e.pack()
-        ttk.Label(win, text="Date expiration").pack(pady=(5, 0)); exp_e = ttk.Entry(win, width=35); exp_e.insert(0, (date.today() + timedelta(days=365)).isoformat()); exp_e.pack()
+    def edit_agrement(self):
+        sel = self.tree_a.selection()
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez un agrement")
+            return
+        self._form_agrement(self.tree_a.item(sel[0])["values"][0])
+
+    def _form_agrement(self, aid=None):
+        win = tk.Toplevel(self)
+        win.title("Agrement")
+        win.geometry("380x360")
+        win.grab_set()
+        ttk.Label(win, text="Type").pack(pady=(6, 0))
+        type_var = tk.StringVar(value="eleveur")
+        ttk.Combobox(win, textvariable=type_var, values=["eleveur", "vehicule", "centre"], state="readonly", width=36).pack()
+        ttk.Label(win, text="Reference *").pack(pady=(5, 0))
+        ref_e = ttk.Entry(win, width=38); ref_e.pack()
+        ttk.Label(win, text="Cible").pack(pady=(5, 0))
+        cible_e = ttk.Entry(win, width=38); cible_e.pack()
+        ttk.Label(win, text="Date delivrance (AAAA-MM-JJ)").pack(pady=(5, 0))
+        deliv_e = ttk.Entry(win, width=38)
+        deliv_e.insert(0, date.today().isoformat()); deliv_e.pack()
+        ttk.Label(win, text="Date expiration (AAAA-MM-JJ)").pack(pady=(5, 0))
+        exp_e = ttk.Entry(win, width=38)
+        exp_e.insert(0, (date.today() + timedelta(days=365)).isoformat()); exp_e.pack()
+        statut_var = tk.StringVar(value="valide")
+        ttk.Label(win, text="Statut").pack(pady=(5, 0))
+        ttk.Combobox(win, textvariable=statut_var, values=["valide", "expire", "suspendu"], state="readonly", width=36).pack()
+        if aid:
+            conn = get_conn()
+            r = conn.execute("SELECT * FROM agrements WHERE id=?", (aid,)).fetchone()
+            conn.close()
+            if r:
+                type_var.set(r["type_agrement"] or "eleveur")
+                ref_e.insert(0, r["reference"] or "")
+                cible_e.insert(0, r["cible"] or "")
+                deliv_e.delete(0, "end"); deliv_e.insert(0, r["date_delivrance"] or "")
+                exp_e.delete(0, "end"); exp_e.insert(0, r["date_expiration"] or "")
+                statut_var.set(r["statut"] or "valide")
         def save():
             try:
                 ref = ref_e.get().strip()
-                if not ref: raise ValueError("Reference obligatoire")
+                if not ref:
+                    raise ValueError("Reference obligatoire")
                 conn = get_conn()
-                conn.execute("INSERT INTO agrements (reference,type_agrement,cible,date_delivrance,date_expiration,statut) VALUES (?,?,?,?,?,?)",
-                             (ref, type_var.get(), cible_e.get().strip(), deliv_e.get().strip(), exp_e.get().strip(), "valide"))
-                conn.commit(); conn.close(); win.destroy(); self.show_agrements()
-            except Exception as ex: messagebox.showerror("Erreur", str(ex))
-        ttk.Button(win, text="Enregistrer", command=save).pack(pady=10)
+                if aid:
+                    conn.execute(
+                        """UPDATE agrements SET reference=?,type_agrement=?,cible=?,
+                           date_delivrance=?,date_expiration=?,statut=? WHERE id=?""",
+                        (ref, type_var.get(), cible_e.get().strip(),
+                         deliv_e.get().strip(), exp_e.get().strip(), statut_var.get(), aid))
+                else:
+                    conn.execute(
+                        """INSERT INTO agrements
+                           (reference,type_agrement,cible,date_delivrance,date_expiration,statut)
+                           VALUES (?,?,?,?,?,?)""",
+                        (ref, type_var.get(), cible_e.get().strip(),
+                         deliv_e.get().strip(), exp_e.get().strip(), statut_var.get()))
+                conn.commit(); conn.close()
+                win.destroy()
+                self.show_agrements()
+            except Exception as ex:
+                messagebox.showerror("Erreur", str(ex))
+        ttk.Button(win, text="Enregistrer", command=save).pack(pady=12)
 
     def del_agrement(self):
         sel = self.tree_a.selection()
-        if not sel: messagebox.showwarning("Attention", "Selectionnez"); return
+        if not sel:
+            messagebox.showwarning("Attention", "Selectionnez")
+            return
         if messagebox.askyesno("Confirmation", "Supprimer ?"):
             aid = self.tree_a.item(sel[0])["values"][0]
-            conn = get_conn(); conn.execute("DELETE FROM agrements WHERE id=?", (aid,)); conn.commit(); conn.close()
+            conn = get_conn()
+            conn.execute("DELETE FROM agrements WHERE id=?", (aid,))
+            conn.commit(); conn.close()
             self.show_agrements()
 
     def show_expeditions(self):
@@ -761,31 +881,62 @@ class DiversMixin(object):
                            ("Expeditions", str(nb_exp)), ("Volume expedie", "%.0f L" % qte_exp)]:
             f = ttk.LabelFrame(frame, text=title, padding=8); f.pack(side="left", padx=5)
             ttk.Label(f, text=val, font=("Arial", 12, "bold")).pack()
-        btn = ttk.Frame(self.main); btn.pack(pady=15)
-        ttk.Button(btn, text="Export Collectes CSV", command=self.export_collectes).pack(side="left", padx=5)
-        ttk.Button(btn, text="Export Ventes CSV", command=self.export_ventes).pack(side="left", padx=5)
-        ttk.Button(btn, text="Export Expeditions CSV", command=self.export_expeditions).pack(side="left", padx=5)
+        btn = ttk.Frame(self.main); btn.pack(pady=10)
+        ttk.Button(btn, text="Export Collectes CSV", command=self.export_collectes).pack(side="left", padx=4)
+        ttk.Button(btn, text="Export Ventes CSV", command=self.export_ventes).pack(side="left", padx=4)
+        ttk.Button(btn, text="Export Expeditions CSV", command=self.export_expeditions).pack(side="left", padx=4)
+        btn2 = ttk.Frame(self.main); btn2.pack(pady=6)
+        ttk.Button(btn2, text="Export Eleveurs CSV", command=self.export_eleveurs).pack(side="left", padx=4)
+        ttk.Button(btn2, text="Export Collecteurs CSV", command=self.export_collecteurs).pack(side="left", padx=4)
+        ttk.Button(btn2, text="Export Avances CSV", command=self.export_avances).pack(side="left", padx=4)
+        ttk.Label(self.main, text="Fichiers dans le dossier exports/", fg="gray").pack(pady=4)
 
     def export_collectes(self):
         os.makedirs(EXPORTS_DIR, exist_ok=True)
         path = os.path.join(EXPORTS_DIR, "collectes_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
         conn = get_conn()
-        rows = conn.execute("""SELECT c.numero_bon, e.nom||' '||e.prenom as elev, c.date_heure, c.quantite, c.acidite, c.densite, c.agent
-            FROM collectes c LEFT JOIN eleveurs e ON c.eleveur_id=e.id""").fetchall(); conn.close()
+        rows = conn.execute("""
+            SELECT c.numero_bon, e.code_unique, e.nom||' '||e.prenom as elev,
+                   e.region, COALESCE(col.nom||' '||col.prenom,'') as collecteur,
+                   COALESCE(l.nom,'') as laiterie,
+                   c.date_heure, c.quantite, c.acidite, c.densite, c.agent, c.vehicule
+            FROM collectes c
+            LEFT JOIN eleveurs e ON c.eleveur_id=e.id
+            LEFT JOIN collecteurs col ON e.collecteur_id=col.id
+            LEFT JOIN clients l ON e.laiterie_id=l.id
+            ORDER BY c.date_heure
+        """).fetchall(); conn.close()
         with open(path, "w") as f:
-            w = csv.writer(f, delimiter=";"); w.writerow(["N Bon", "Eleveur", "Date", "Qte", "Acidite", "Densite", "Agent"])
-            for r in rows: w.writerow([r["numero_bon"], r["elev"], r["date_heure"], r["quantite"], r["acidite"], r["densite"], r["agent"]])
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["N Bon", "Code elev", "Eleveur", "Region", "Collecteur", "Laiterie",
+                        "Date", "Qte", "Acidite", "Densite", "Agent", "Vehicule"])
+            for r in rows:
+                w.writerow([r["numero_bon"], r["code_unique"], r["elev"], r["region"],
+                            r["collecteur"], r["laiterie"], r["date_heure"], r["quantite"],
+                            r["acidite"], r["densite"], r["agent"], r["vehicule"]])
         messagebox.showinfo("Succes", path)
 
     def export_ventes(self):
         os.makedirs(EXPORTS_DIR, exist_ok=True)
         path = os.path.join(EXPORTS_DIR, "ventes_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
         conn = get_conn()
-        rows = conn.execute("""SELECT v.numero, e.nom||' '||e.prenom as elev, p.nom as prod, v.quantite, v.montant, v.mode, v.date_vente
-            FROM ventes v LEFT JOIN eleveurs e ON v.eleveur_id=e.id LEFT JOIN produits p ON v.produit_id=p.id""").fetchall(); conn.close()
+        rows = conn.execute("""
+            SELECT v.numero, e.code_unique, e.nom||' '||e.prenom as elev,
+                   COALESCE(col.nom||' '||col.prenom,'') as collecteur,
+                   p.reference, p.nom as prod, v.quantite, v.montant, v.mode, v.date_vente
+            FROM ventes v
+            LEFT JOIN eleveurs e ON v.eleveur_id=e.id
+            LEFT JOIN collecteurs col ON e.collecteur_id=col.id
+            LEFT JOIN produits p ON v.produit_id=p.id
+            ORDER BY v.date_vente
+        """).fetchall(); conn.close()
         with open(path, "w") as f:
-            w = csv.writer(f, delimiter=";"); w.writerow(["N", "Eleveur", "Produit", "Qte", "Montant", "Mode", "Date"])
-            for r in rows: w.writerow([r["numero"], r["elev"], r["prod"], r["quantite"], r["montant"], r["mode"], r["date_vente"]])
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["N", "Code elev", "Eleveur", "Collecteur", "Ref produit", "Produit",
+                        "Qte", "Montant", "Mode", "Date"])
+            for r in rows:
+                w.writerow([r["numero"], r["code_unique"], r["elev"], r["collecteur"],
+                            r["reference"], r["prod"], r["quantite"], r["montant"], r["mode"], r["date_vente"]])
         messagebox.showinfo("Succes", path)
 
     def export_expeditions(self):
@@ -794,6 +945,77 @@ class DiversMixin(object):
         conn = get_conn()
         rows = conn.execute("SELECT * FROM expeditions ORDER BY date_expedition").fetchall(); conn.close()
         with open(path, "w") as f:
-            w = csv.writer(f, delimiter=";"); w.writerow(["N", "Date", "Destination", "Qte", "Temp", "Vehicule", "Agent", "Statut"])
-            for r in rows: w.writerow([r["numero_bordereau"], r["date_expedition"], r["destination"], r["quantite_totale"], r["temperature"], r["vehicule"], r["agent"], r["statut"]])
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["N", "Date", "Destination", "Qte", "Temp", "Vehicule", "Agent", "Statut", "Observations"])
+            for r in rows:
+                w.writerow([r["numero_bordereau"], r["date_expedition"], r["destination"],
+                            r["quantite_totale"], r["temperature"], r["vehicule"], r["agent"],
+                            r["statut"], r["observations"]])
+        messagebox.showinfo("Succes", path)
+
+    def export_eleveurs(self):
+        os.makedirs(EXPORTS_DIR, exist_ok=True)
+        path = os.path.join(EXPORTS_DIR, "eleveurs_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT e.code_unique, e.nom, e.prenom, e.telephone, e.adresse, e.region,
+                   e.date_adhesion, e.statut,
+                   COALESCE(c.nom||' '||c.prenom,'') as collecteur,
+                   COALESCE(l.nom,'') as laiterie
+            FROM eleveurs e
+            LEFT JOIN collecteurs c ON e.collecteur_id=c.id
+            LEFT JOIN clients l ON e.laiterie_id=l.id
+            ORDER BY e.nom
+        """).fetchall(); conn.close()
+        with open(path, "w") as f:
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["Code", "Nom", "Prenom", "Tel", "Adresse", "Region", "Adhesion",
+                        "Statut", "Collecteur", "Laiterie"])
+            for r in rows:
+                w.writerow([r["code_unique"], r["nom"], r["prenom"], r["telephone"], r["adresse"],
+                            r["region"], r["date_adhesion"], r["statut"], r["collecteur"], r["laiterie"]])
+        messagebox.showinfo("Succes", path)
+
+    def export_collecteurs(self):
+        os.makedirs(EXPORTS_DIR, exist_ok=True)
+        path = os.path.join(EXPORTS_DIR, "collecteurs_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT c.code, c.nom, c.prenom, c.telephone, c.region, c.vehicule, c.statut,
+                   COUNT(DISTINCT e.id) as nb_elev,
+                   COALESCE(SUM(col.quantite),0) as volume
+            FROM collecteurs c
+            LEFT JOIN eleveurs e ON e.collecteur_id=c.id
+            LEFT JOIN collectes col ON col.eleveur_id=e.id
+            GROUP BY c.id
+            ORDER BY c.nom
+        """).fetchall(); conn.close()
+        with open(path, "w") as f:
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["Code", "Nom", "Prenom", "Tel", "Region", "Vehicule", "Statut",
+                        "Nb eleveurs", "Volume litres"])
+            for r in rows:
+                w.writerow([r["code"], r["nom"], r["prenom"], r["telephone"], r["region"],
+                            r["vehicule"], r["statut"], r["nb_elev"], r["volume"]])
+        messagebox.showinfo("Succes", path)
+
+    def export_avances(self):
+        os.makedirs(EXPORTS_DIR, exist_ok=True)
+        path = os.path.join(EXPORTS_DIR, "avances_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT a.date_avance, e.code_unique, e.nom||' '||e.prenom as elev,
+                   COALESCE(c.nom||' '||c.prenom,'') as collecteur,
+                   a.montant, a.motif, a.statut
+            FROM avances a
+            LEFT JOIN eleveurs e ON a.eleveur_id=e.id
+            LEFT JOIN collecteurs c ON e.collecteur_id=c.id
+            ORDER BY a.date_avance
+        """).fetchall(); conn.close()
+        with open(path, "w") as f:
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["Date", "Code elev", "Eleveur", "Collecteur", "Montant", "Motif", "Statut"])
+            for r in rows:
+                w.writerow([r["date_avance"], r["code_unique"], r["elev"], r["collecteur"],
+                            r["montant"], r["motif"], r["statut"]])
         messagebox.showinfo("Succes", path)
