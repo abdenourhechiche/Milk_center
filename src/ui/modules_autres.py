@@ -1023,8 +1023,10 @@ class DiversMixin(object):
     def show_reports(self):
         self.clear()
         ttk.Label(self.main, text="Rapports & Exports", font=("Arial", 15, "bold")).pack(pady=8)
-        filt = ttk.Frame(self.main); filt.pack(fill="x", pady=4)
-        ttk.Label(filt, text="Periode exports Du :").pack(side="left", padx=3)
+
+        filt = ttk.Frame(self.main)
+        filt.pack(fill="x", pady=4)
+        ttk.Label(filt, text="Periode Du :").pack(side="left", padx=3)
         self._rap_date_debut = ttk.Entry(filt, width=12)
         self._rap_date_debut.insert(0, (date.today() - timedelta(days=30)).isoformat())
         self._rap_date_debut.pack(side="left")
@@ -1032,38 +1034,59 @@ class DiversMixin(object):
         self._rap_date_fin = ttk.Entry(filt, width=12)
         self._rap_date_fin.insert(0, date.today().isoformat())
         self._rap_date_fin.pack(side="left")
-        ttk.Label(filt, text="(AAAA-MM-JJ)", fg="gray").pack(side="left", padx=6)
-        conn = get_conn()
-        # stats sur la periode
-        d1 = self._rap_date_debut.get().strip()
-        d2 = self._rap_date_fin.get().strip()
-        total_l = conn.execute(
-            "SELECT COALESCE(SUM(quantite),0) FROM collectes WHERE date(date_heure)>=date(?) AND date(date_heure)<=date(?)",
-            (d1, d2)).fetchone()[0]
-        ca = conn.execute(
-            "SELECT COALESCE(SUM(montant),0) FROM ventes WHERE date(date_vente)>=date(?) AND date(date_vente)<=date(?)",
-            (d1, d2)).fetchone()[0]
-        nb_exp = conn.execute(
-            "SELECT COUNT(*) FROM expeditions WHERE date(date_expedition)>=date(?) AND date(date_expedition)<=date(?)",
-            (d1, d2)).fetchone()[0]
-        qte_exp = conn.execute(
-            "SELECT COALESCE(SUM(quantite_totale),0) FROM expeditions WHERE date(date_expedition)>=date(?) AND date(date_expedition)<=date(?)",
-            (d1, d2)).fetchone()[0]
-        conn.close()
-        frame = ttk.Frame(self.main); frame.pack(pady=10)
-        for title, val in [("Volume collectes", "%.0f L" % total_l), ("CA Aliments", "%.0f %s" % (ca, MONNAIE)),
-                           ("Expeditions", str(nb_exp)), ("Volume expedie", "%.0f L" % qte_exp)]:
-            f = ttk.LabelFrame(frame, text=title, padding=8); f.pack(side="left", padx=5)
+        ttk.Label(filt, text="(AAAA-MM-JJ)").pack(side="left", padx=6)
+        ttk.Button(filt, text="Actualiser stats", command=self.show_reports).pack(side="left", padx=6)
+
+        # Stats periode
+        try:
+            d1 = self._rap_date_debut.get().strip()
+            d2 = self._rap_date_fin.get().strip()
+            conn = get_conn()
+            total_l = conn.execute(
+                "SELECT COALESCE(SUM(quantite),0) FROM collectes WHERE date(date_heure)>=date(?) AND date(date_heure)<=date(?)",
+                (d1, d2)).fetchone()[0]
+            ca = conn.execute(
+                "SELECT COALESCE(SUM(montant),0) FROM ventes WHERE date(date_vente)>=date(?) AND date(date_vente)<=date(?)",
+                (d1, d2)).fetchone()[0]
+            nb_exp = conn.execute(
+                "SELECT COUNT(*) FROM expeditions WHERE date(date_expedition)>=date(?) AND date(date_expedition)<=date(?)",
+                (d1, d2)).fetchone()[0]
+            qte_exp = conn.execute(
+                "SELECT COALESCE(SUM(quantite_totale),0) FROM expeditions WHERE date(date_expedition)>=date(?) AND date(date_expedition)<=date(?)",
+                (d1, d2)).fetchone()[0]
+            conn.close()
+        except Exception:
+            total_l = ca = nb_exp = qte_exp = 0
+
+        frame = ttk.Frame(self.main)
+        frame.pack(pady=10)
+        for title, val in [
+            ("Volume collectes", "%.0f L" % total_l),
+            ("CA Aliments", "%.0f %s" % (ca, MONNAIE)),
+            ("Expeditions", str(nb_exp)),
+            ("Volume expedie", "%.0f L" % qte_exp),
+        ]:
+            f = ttk.LabelFrame(frame, text=title, padding=8)
+            f.pack(side="left", padx=5)
             ttk.Label(f, text=val, font=("Arial", 12, "bold")).pack()
-        btn = ttk.Frame(self.main); btn.pack(pady=10)
+
+        btn = ttk.Frame(self.main)
+        btn.pack(pady=10)
         ttk.Button(btn, text="Export Collectes CSV", command=self.export_collectes).pack(side="left", padx=4)
         ttk.Button(btn, text="Export Ventes CSV", command=self.export_ventes).pack(side="left", padx=4)
         ttk.Button(btn, text="Export Expeditions CSV", command=self.export_expeditions).pack(side="left", padx=4)
-        btn2 = ttk.Frame(self.main); btn2.pack(pady=6)
+
+        btn2 = ttk.Frame(self.main)
+        btn2.pack(pady=6)
         ttk.Button(btn2, text="Export Eleveurs CSV", command=self.export_eleveurs).pack(side="left", padx=4)
         ttk.Button(btn2, text="Export Collecteurs CSV", command=self.export_collecteurs).pack(side="left", padx=4)
         ttk.Button(btn2, text="Export Avances CSV", command=self.export_avances).pack(side="left", padx=4)
-        ttk.Label(self.main, text="Les exports Collectes / Ventes / Expeditions / Avances respectent la periode ci-dessus.", fg="gray").pack(pady=4)
+
+        tk.Label(
+            self.main,
+            text="Les exports Collectes / Ventes / Expeditions / Avances respectent la periode ci-dessus.",
+            fg="#555555",
+        ).pack(pady=4)
 
     def _rapport_dates(self):
         """Retourne (debut, fin) pour les exports, ou ('', '') si vides."""
