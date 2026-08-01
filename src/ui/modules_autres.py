@@ -16,7 +16,7 @@ class CollectesMixin(object):
         self.clear()
         ttk.Label(self.main, text="Gestion des Collectes", font=("Arial", 15, "bold")).pack(pady=6)
 
-        # Filtre collecteur
+        # Filtres collecteur + dates
         filt = ttk.Frame(self.main)
         filt.pack(fill="x", pady=2)
         ttk.Label(filt, text="Collecteur :").pack(side="left", padx=3)
@@ -27,9 +27,17 @@ class CollectesMixin(object):
         conn.close()
         self._filtre_col_var = tk.StringVar(value="Tous")
         opts = ["Tous"] + ["%d - %s %s" % (c["id"], c["nom"], c["prenom"]) for c in cols_list]
-        cb = ttk.Combobox(filt, textvariable=self._filtre_col_var, values=opts, state="readonly", width=35)
+        cb = ttk.Combobox(filt, textvariable=self._filtre_col_var, values=opts, state="readonly", width=28)
         cb.pack(side="left", padx=3)
-        ttk.Button(filt, text="Filtrer", command=self._refresh_collectes_list).pack(side="left", padx=3)
+        ttk.Label(filt, text="Du :").pack(side="left", padx=(8, 2))
+        self._col_date_debut = ttk.Entry(filt, width=12)
+        self._col_date_debut.insert(0, (date.today() - timedelta(days=30)).isoformat())
+        self._col_date_debut.pack(side="left")
+        ttk.Label(filt, text="Au :").pack(side="left", padx=(8, 2))
+        self._col_date_fin = ttk.Entry(filt, width=12)
+        self._col_date_fin.insert(0, date.today().isoformat())
+        self._col_date_fin.pack(side="left")
+        ttk.Button(filt, text="Filtrer", command=self._refresh_collectes_list).pack(side="left", padx=6)
 
         tb = ttk.Frame(self.main)
         tb.pack(fill="x")
@@ -58,6 +66,10 @@ class CollectesMixin(object):
                 col_filter = int(f.get().split(" - ")[0])
             except Exception:
                 col_filter = None
+        d1 = getattr(self, "_col_date_debut", None)
+        d2 = getattr(self, "_col_date_fin", None)
+        date_debut = (d1.get().strip() if d1 else "") or ""
+        date_fin = (d2.get().strip() if d2 else "") or ""
         conn = get_conn()
         sql = """SELECT c.*, e.nom||' '||e.prenom as elev_nom,
                         COALESCE(col.nom||' '||col.prenom, '-') as collecteur_nom
@@ -69,7 +81,13 @@ class CollectesMixin(object):
         if col_filter:
             sql += " AND e.collecteur_id=?"
             params.append(col_filter)
-        sql += " ORDER BY c.date_heure DESC LIMIT 300"
+        if date_debut:
+            sql += " AND date(c.date_heure) >= date(?)"
+            params.append(date_debut)
+        if date_fin:
+            sql += " AND date(c.date_heure) <= date(?)"
+            params.append(date_fin)
+        sql += " ORDER BY c.date_heure DESC LIMIT 500"
         for r in conn.execute(sql, params):
             self.tree_col.insert("", "end", values=(
                 r["id"], r["numero_bon"], r["elev_nom"] or "?",
@@ -395,6 +413,16 @@ class FacturationMixin(object):
     def show_facturation(self):
         self.clear()
         ttk.Label(self.main, text="Facturation + Impression", font=("Arial", 15, "bold")).pack(pady=6)
+        filt = ttk.Frame(self.main); filt.pack(fill="x", pady=2)
+        ttk.Label(filt, text="Date facture Du :").pack(side="left", padx=3)
+        self._fac_date_debut = ttk.Entry(filt, width=12)
+        self._fac_date_debut.insert(0, (date.today() - timedelta(days=90)).isoformat())
+        self._fac_date_debut.pack(side="left")
+        ttk.Label(filt, text="Au :").pack(side="left", padx=(8, 2))
+        self._fac_date_fin = ttk.Entry(filt, width=12)
+        self._fac_date_fin.insert(0, date.today().isoformat())
+        self._fac_date_fin.pack(side="left")
+        ttk.Button(filt, text="Filtrer", command=self._refresh_factures_list).pack(side="left", padx=6)
         tb = ttk.Frame(self.main); tb.pack(fill="x")
         ttk.Button(tb, text="Generer Facture", command=lambda: self.form_facture()).pack(side="left", padx=3)
         ttk.Button(tb, text="Modifier", command=self.edit_facture).pack(side="left", padx=3)
@@ -407,9 +435,29 @@ class FacturationMixin(object):
         for c, t in zip(cols, ["ID", "N", "Eleveur", "Du", "Au", "Credit", "Debit", "Avances", "Solde", "Reglement"]):
             self.tree_f.heading(c, text=t); self.tree_f.column(c, width=85)
         self.tree_f.pack(fill="both", expand=True, pady=4)
+        self._refresh_factures_list()
+
+    def _refresh_factures_list(self):
+        if not hasattr(self, "tree_f"):
+            return
+        for i in self.tree_f.get_children():
+            self.tree_f.delete(i)
+        d1 = getattr(self, "_fac_date_debut", None)
+        d2 = getattr(self, "_fac_date_fin", None)
+        date_debut = (d1.get().strip() if d1 else "") or ""
+        date_fin = (d2.get().strip() if d2 else "") or ""
         conn = get_conn()
-        for r in conn.execute("""SELECT f.*, e.nom||' '||e.prenom as elev FROM factures f
-            LEFT JOIN eleveurs e ON f.eleveur_id=e.id ORDER BY f.date_facture DESC"""):
+        sql = """SELECT f.*, e.nom||' '||e.prenom as elev FROM factures f
+            LEFT JOIN eleveurs e ON f.eleveur_id=e.id WHERE 1=1"""
+        params = []
+        if date_debut:
+            sql += " AND date(f.date_facture) >= date(?)"
+            params.append(date_debut)
+        if date_fin:
+            sql += " AND date(f.date_facture) <= date(?)"
+            params.append(date_fin)
+        sql += " ORDER BY f.date_facture DESC"
+        for r in conn.execute(sql, params):
             self.tree_f.insert("", "end", values=(
                 r["id"], r["numero"], r["elev"] or "?",
                 (r["periode_debut"] or "")[:10], (r["periode_fin"] or "")[:10],
@@ -696,6 +744,16 @@ class DiversMixin(object):
     def show_expeditions(self):
         self.clear()
         ttk.Label(self.main, text="Expeditions vers Laiteries", font=("Arial", 15, "bold")).pack(pady=6)
+        filt = ttk.Frame(self.main); filt.pack(fill="x", pady=2)
+        ttk.Label(filt, text="Du :").pack(side="left", padx=3)
+        self._exp_date_debut = ttk.Entry(filt, width=12)
+        self._exp_date_debut.insert(0, (date.today() - timedelta(days=30)).isoformat())
+        self._exp_date_debut.pack(side="left")
+        ttk.Label(filt, text="Au :").pack(side="left", padx=(8, 2))
+        self._exp_date_fin = ttk.Entry(filt, width=12)
+        self._exp_date_fin.insert(0, date.today().isoformat())
+        self._exp_date_fin.pack(side="left")
+        ttk.Button(filt, text="Filtrer", command=self._refresh_expeditions_list).pack(side="left", padx=6)
         tb = ttk.Frame(self.main); tb.pack(fill="x")
         ttk.Button(tb, text="Nouveau", command=self.add_expedition).pack(side="left", padx=3)
         ttk.Button(tb, text="Supprimer", command=self.del_expedition).pack(side="left", padx=3)
@@ -706,8 +764,28 @@ class DiversMixin(object):
         for c, t in zip(cols, ["ID", "N", "Date", "Destination", "Qte", "Vehicule", "Agent", "Statut"]):
             self.tree_exp.heading(c, text=t); self.tree_exp.column(c, width=95)
         self.tree_exp.pack(fill="both", expand=True, pady=4)
+        self._refresh_expeditions_list()
+
+    def _refresh_expeditions_list(self):
+        if not hasattr(self, "tree_exp"):
+            return
+        for i in self.tree_exp.get_children():
+            self.tree_exp.delete(i)
+        d1 = getattr(self, "_exp_date_debut", None)
+        d2 = getattr(self, "_exp_date_fin", None)
+        date_debut = (d1.get().strip() if d1 else "") or ""
+        date_fin = (d2.get().strip() if d2 else "") or ""
         conn = get_conn()
-        for r in conn.execute("SELECT * FROM expeditions ORDER BY date_expedition DESC"):
+        sql = "SELECT * FROM expeditions WHERE 1=1"
+        params = []
+        if date_debut:
+            sql += " AND date(date_expedition) >= date(?)"
+            params.append(date_debut)
+        if date_fin:
+            sql += " AND date(date_expedition) <= date(?)"
+            params.append(date_fin)
+        sql += " ORDER BY date_expedition DESC"
+        for r in conn.execute(sql, params):
             self.tree_exp.insert("", "end", values=(
                 r["id"], r["numero_bordereau"], (r["date_expedition"] or "")[:16],
                 r["destination"] or "", "%.0f" % (r["quantite_totale"] or 0),
@@ -945,11 +1023,32 @@ class DiversMixin(object):
     def show_reports(self):
         self.clear()
         ttk.Label(self.main, text="Rapports & Exports", font=("Arial", 15, "bold")).pack(pady=8)
+        filt = ttk.Frame(self.main); filt.pack(fill="x", pady=4)
+        ttk.Label(filt, text="Periode exports Du :").pack(side="left", padx=3)
+        self._rap_date_debut = ttk.Entry(filt, width=12)
+        self._rap_date_debut.insert(0, (date.today() - timedelta(days=30)).isoformat())
+        self._rap_date_debut.pack(side="left")
+        ttk.Label(filt, text="Au :").pack(side="left", padx=(8, 2))
+        self._rap_date_fin = ttk.Entry(filt, width=12)
+        self._rap_date_fin.insert(0, date.today().isoformat())
+        self._rap_date_fin.pack(side="left")
+        ttk.Label(filt, text="(AAAA-MM-JJ)", fg="gray").pack(side="left", padx=6)
         conn = get_conn()
-        total_l = conn.execute("SELECT COALESCE(SUM(quantite),0) FROM collectes").fetchone()[0]
-        ca = conn.execute("SELECT COALESCE(SUM(montant),0) FROM ventes").fetchone()[0]
-        nb_exp = conn.execute("SELECT COUNT(*) FROM expeditions").fetchone()[0]
-        qte_exp = conn.execute("SELECT COALESCE(SUM(quantite_totale),0) FROM expeditions").fetchone()[0]
+        # stats sur la periode
+        d1 = self._rap_date_debut.get().strip()
+        d2 = self._rap_date_fin.get().strip()
+        total_l = conn.execute(
+            "SELECT COALESCE(SUM(quantite),0) FROM collectes WHERE date(date_heure)>=date(?) AND date(date_heure)<=date(?)",
+            (d1, d2)).fetchone()[0]
+        ca = conn.execute(
+            "SELECT COALESCE(SUM(montant),0) FROM ventes WHERE date(date_vente)>=date(?) AND date(date_vente)<=date(?)",
+            (d1, d2)).fetchone()[0]
+        nb_exp = conn.execute(
+            "SELECT COUNT(*) FROM expeditions WHERE date(date_expedition)>=date(?) AND date(date_expedition)<=date(?)",
+            (d1, d2)).fetchone()[0]
+        qte_exp = conn.execute(
+            "SELECT COALESCE(SUM(quantite_totale),0) FROM expeditions WHERE date(date_expedition)>=date(?) AND date(date_expedition)<=date(?)",
+            (d1, d2)).fetchone()[0]
         conn.close()
         frame = ttk.Frame(self.main); frame.pack(pady=10)
         for title, val in [("Volume collectes", "%.0f L" % total_l), ("CA Aliments", "%.0f %s" % (ca, MONNAIE)),
@@ -964,13 +1063,21 @@ class DiversMixin(object):
         ttk.Button(btn2, text="Export Eleveurs CSV", command=self.export_eleveurs).pack(side="left", padx=4)
         ttk.Button(btn2, text="Export Collecteurs CSV", command=self.export_collecteurs).pack(side="left", padx=4)
         ttk.Button(btn2, text="Export Avances CSV", command=self.export_avances).pack(side="left", padx=4)
-        ttk.Label(self.main, text="Fichiers dans le dossier exports/", fg="gray").pack(pady=4)
+        ttk.Label(self.main, text="Les exports Collectes / Ventes / Expeditions / Avances respectent la periode ci-dessus.", fg="gray").pack(pady=4)
+
+    def _rapport_dates(self):
+        """Retourne (debut, fin) pour les exports, ou ('', '') si vides."""
+        d1 = getattr(self, "_rap_date_debut", None)
+        d2 = getattr(self, "_rap_date_fin", None)
+        return ((d1.get().strip() if d1 else "") or "",
+                (d2.get().strip() if d2 else "") or "")
 
     def export_collectes(self):
         os.makedirs(EXPORTS_DIR, exist_ok=True)
         path = os.path.join(EXPORTS_DIR, "collectes_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
+        d1, d2 = self._rapport_dates()
         conn = get_conn()
-        rows = conn.execute("""
+        sql = """
             SELECT c.numero_bon, e.code_unique, e.nom||' '||e.prenom as elev,
                    e.region, COALESCE(col.nom||' '||col.prenom,'') as collecteur,
                    COALESCE(l.nom,'') as laiterie,
@@ -979,8 +1086,16 @@ class DiversMixin(object):
             LEFT JOIN eleveurs e ON c.eleveur_id=e.id
             LEFT JOIN collecteurs col ON e.collecteur_id=col.id
             LEFT JOIN clients l ON e.laiterie_id=l.id
-            ORDER BY c.date_heure
-        """).fetchall(); conn.close()
+            WHERE 1=1"""
+        params = []
+        if d1:
+            sql += " AND date(c.date_heure) >= date(?)"
+            params.append(d1)
+        if d2:
+            sql += " AND date(c.date_heure) <= date(?)"
+            params.append(d2)
+        sql += " ORDER BY c.date_heure"
+        rows = conn.execute(sql, params).fetchall(); conn.close()
         with open(path, "w") as f:
             w = csv.writer(f, delimiter=";")
             w.writerow(["N Bon", "Code elev", "Eleveur", "Region", "Collecteur", "Laiterie",
@@ -994,8 +1109,9 @@ class DiversMixin(object):
     def export_ventes(self):
         os.makedirs(EXPORTS_DIR, exist_ok=True)
         path = os.path.join(EXPORTS_DIR, "ventes_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
+        d1, d2 = self._rapport_dates()
         conn = get_conn()
-        rows = conn.execute("""
+        sql = """
             SELECT v.numero, e.code_unique, e.nom||' '||e.prenom as elev,
                    COALESCE(col.nom||' '||col.prenom,'') as collecteur,
                    p.reference, p.nom as prod, v.quantite, v.montant, v.mode, v.date_vente
@@ -1003,8 +1119,16 @@ class DiversMixin(object):
             LEFT JOIN eleveurs e ON v.eleveur_id=e.id
             LEFT JOIN collecteurs col ON e.collecteur_id=col.id
             LEFT JOIN produits p ON v.produit_id=p.id
-            ORDER BY v.date_vente
-        """).fetchall(); conn.close()
+            WHERE 1=1"""
+        params = []
+        if d1:
+            sql += " AND date(v.date_vente) >= date(?)"
+            params.append(d1)
+        if d2:
+            sql += " AND date(v.date_vente) <= date(?)"
+            params.append(d2)
+        sql += " ORDER BY v.date_vente"
+        rows = conn.execute(sql, params).fetchall(); conn.close()
         with open(path, "w") as f:
             w = csv.writer(f, delimiter=";")
             w.writerow(["N", "Code elev", "Eleveur", "Collecteur", "Ref produit", "Produit",
@@ -1017,8 +1141,18 @@ class DiversMixin(object):
     def export_expeditions(self):
         os.makedirs(EXPORTS_DIR, exist_ok=True)
         path = os.path.join(EXPORTS_DIR, "expeditions_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
+        d1, d2 = self._rapport_dates()
         conn = get_conn()
-        rows = conn.execute("SELECT * FROM expeditions ORDER BY date_expedition").fetchall(); conn.close()
+        sql = "SELECT * FROM expeditions WHERE 1=1"
+        params = []
+        if d1:
+            sql += " AND date(date_expedition) >= date(?)"
+            params.append(d1)
+        if d2:
+            sql += " AND date(date_expedition) <= date(?)"
+            params.append(d2)
+        sql += " ORDER BY date_expedition"
+        rows = conn.execute(sql, params).fetchall(); conn.close()
         with open(path, "w") as f:
             w = csv.writer(f, delimiter=";")
             w.writerow(["N", "Date", "Destination", "Qte", "Temp", "Vehicule", "Agent", "Statut", "Observations"])
@@ -1077,16 +1211,25 @@ class DiversMixin(object):
     def export_avances(self):
         os.makedirs(EXPORTS_DIR, exist_ok=True)
         path = os.path.join(EXPORTS_DIR, "avances_%s.csv" % datetime.now().strftime("%Y%m%d_%H%M"))
+        d1, d2 = self._rapport_dates()
         conn = get_conn()
-        rows = conn.execute("""
+        sql = """
             SELECT a.date_avance, e.code_unique, e.nom||' '||e.prenom as elev,
                    COALESCE(c.nom||' '||c.prenom,'') as collecteur,
                    a.montant, a.motif, a.statut
             FROM avances a
             LEFT JOIN eleveurs e ON a.eleveur_id=e.id
             LEFT JOIN collecteurs c ON e.collecteur_id=c.id
-            ORDER BY a.date_avance
-        """).fetchall(); conn.close()
+            WHERE 1=1"""
+        params = []
+        if d1:
+            sql += " AND date(a.date_avance) >= date(?)"
+            params.append(d1)
+        if d2:
+            sql += " AND date(a.date_avance) <= date(?)"
+            params.append(d2)
+        sql += " ORDER BY a.date_avance"
+        rows = conn.execute(sql, params).fetchall(); conn.close()
         with open(path, "w") as f:
             w = csv.writer(f, delimiter=";")
             w.writerow(["Date", "Code elev", "Eleveur", "Collecteur", "Montant", "Motif", "Statut"])
