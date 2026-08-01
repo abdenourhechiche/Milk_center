@@ -3,7 +3,7 @@
 from __future__ import print_function, unicode_literals
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import uuid
 
 from src.database import get_conn
@@ -22,6 +22,17 @@ class VentesMixin(object):
         # --- Ventes ---
         f1 = ttk.Frame(nb)
         nb.add(f1, text="Ventes")
+        filt = ttk.Frame(f1)
+        filt.pack(fill="x", pady=2)
+        ttk.Label(filt, text="Du :").pack(side="left", padx=3)
+        self._vte_date_debut = ttk.Entry(filt, width=12)
+        self._vte_date_debut.insert(0, (date.today() - timedelta(days=30)).isoformat())
+        self._vte_date_debut.pack(side="left")
+        ttk.Label(filt, text="Au :").pack(side="left", padx=(8, 2))
+        self._vte_date_fin = ttk.Entry(filt, width=12)
+        self._vte_date_fin.insert(0, date.today().isoformat())
+        self._vte_date_fin.pack(side="left")
+        ttk.Button(filt, text="Filtrer", command=self._refresh_ventes_list).pack(side="left", padx=6)
         tb = ttk.Frame(f1)
         tb.pack(fill="x")
         ttk.Button(tb, text="Nouvelle Vente", command=self.add_vente).pack(
@@ -45,28 +56,7 @@ class VentesMixin(object):
             self.tree_v.heading(c, text=t)
             self.tree_v.column(c, width=95)
         self.tree_v.pack(fill="both", expand=True, pady=3)
-
-        conn = get_conn()
-        for r in conn.execute(
-            """SELECT v.*, e.nom||' '||e.prenom as elev, p.nom as prod
-               FROM ventes v
-               LEFT JOIN eleveurs e ON v.eleveur_id=e.id
-               LEFT JOIN produits p ON v.produit_id=p.id
-               ORDER BY v.date_vente DESC LIMIT 200"""
-        ):
-            self.tree_v.insert(
-                "",
-                "end",
-                values=(
-                    r["id"],
-                    r["numero"],
-                    r["elev"] or "?",
-                    r["prod"] or "?",
-                    r["quantite"],
-                    "%.0f" % (r["montant"] or 0),
-                    (r["date_vente"] or "")[:10],
-                ),
-            )
+        self._refresh_ventes_list()
 
         # --- Produits ---
         f2 = ttk.Frame(nb)
@@ -111,6 +101,46 @@ class VentesMixin(object):
                     "%.0f" % (r["prix"] or 0),
                     "%.1f" % (r["stock"] or 0),
                     alerte,
+                ),
+            )
+        conn.close()
+
+
+    def _refresh_ventes_list(self):
+        if not hasattr(self, "tree_v"):
+            return
+        for i in self.tree_v.get_children():
+            self.tree_v.delete(i)
+        d1 = getattr(self, "_vte_date_debut", None)
+        d2 = getattr(self, "_vte_date_fin", None)
+        date_debut = (d1.get().strip() if d1 else "") or ""
+        date_fin = (d2.get().strip() if d2 else "") or ""
+        conn = get_conn()
+        sql = """SELECT v.*, e.nom||' '||e.prenom as elev, p.nom as prod
+               FROM ventes v
+               LEFT JOIN eleveurs e ON v.eleveur_id=e.id
+               LEFT JOIN produits p ON v.produit_id=p.id
+               WHERE 1=1"""
+        params = []
+        if date_debut:
+            sql += " AND date(v.date_vente) >= date(?)"
+            params.append(date_debut)
+        if date_fin:
+            sql += " AND date(v.date_vente) <= date(?)"
+            params.append(date_fin)
+        sql += " ORDER BY v.date_vente DESC LIMIT 500"
+        for r in conn.execute(sql, params):
+            self.tree_v.insert(
+                "",
+                "end",
+                values=(
+                    r["id"],
+                    r["numero"],
+                    r["elev"] or "?",
+                    r["prod"] or "?",
+                    r["quantite"],
+                    "%.0f" % (r["montant"] or 0),
+                    (r["date_vente"] or "")[:10],
                 ),
             )
         conn.close()
